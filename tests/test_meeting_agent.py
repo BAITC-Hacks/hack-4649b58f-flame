@@ -3,6 +3,7 @@ import os
 from datetime import date
 
 import pytest
+import urllib.request
 
 from app.agents.meeting_agent import MeetingProtocolAgent, ModelResponseError
 from app.models.schemas import ActionItem, TranscriptSegment
@@ -199,6 +200,77 @@ def test_dedup_never_synthesizes_fields_from_different_evidence():
         (second.evidence, second.assignee, second.deadline_text),
     }
     assert (merged.evidence, merged.assignee, merged.deadline_text) in valid_pairs
+    assert merged.needs_review is True
+    assert "поля из разных evidence не объединялись" in (merged.warning or "")
+
+
+
+def test_completed_fact_about_other_action_does_not_hide_new_instruction():
+    agent = FakeAgent({})
+    assert agent._grounded(
+        "Отправить письмо",
+        "Если письмо уже подготовил, отправь письмо сегодня.",
+    ) is True
+
+
+def test_do_not_forget_phrase_is_not_treated_as_negation_or_cancellation():
+    agent = FakeAgent({})
+    text = "Ерлан, не надо забывать подготовить отчёт."
+    assert agent._grounded("Подготовить отчёт", text) is True
+    assert agent._is_explicit_cancellation(text) is False
+
+
+def test_local_ollama_transport_disables_environment_proxies(monkeypatch):
+    captured = {}
+
+    class DummyResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            return b'{"message":{"content":"{}"}}'
+
+    class DummyOpener:
+        def open(self, request, timeout):
+            captured["url"] = request.full_url
+            captured["timeout"] = timeout
+            return DummyResponse()
+
+    def fake_proxy_handler(proxies):
+        captured["proxies"] = proxies
+        return object()
+
+    def fake_build_opener(handler):
+        captured["handler"] = handler
+        return DummyOpener()
+
+    monkeypatch.setattr(urllib.request, "ProxyHandler", fake_proxy_handler)
+    monkeypatch.setattr(urllib.request, "build_opener", fake_build_opener)
+
+    agent = MeetingProtocolAgent(base_url="http://127.0.0.1:11434", timeout=7)
+    assert agent._call_ollama("test") == "{}"
+    assert captured["proxies"] == {}
+    assert captured["url"] == "http://127.0.0.1:11434/api/chat"
+    assert captured["timeout"] == 7
+
+
+def test_ambiguous_evidence_location_is_not_used_for_cancellation_matching():
+    agent = FakeAgent({})
+    item = ActionItem(
+        task="Подготовить отчёт",
+        evidence="Повтор",
+        evidence_start=0,
+        evidence_end=1,
+        confidence=0.9,
+    )
+    transcript = [
+        TranscriptSegment(id=1, start=0, end=1, speaker_id="S1", text="Повтор"),
+        TranscriptSegment(id=2, start=0, end=1, speaker_id="S1", text="Повтор"),
+    ]
+    assert agent._find_evidence_index(item, transcript) is None
 
 
 def test_malformed_assignee_dash_does_not_crash():
