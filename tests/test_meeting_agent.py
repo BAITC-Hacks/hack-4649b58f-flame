@@ -5,7 +5,7 @@ from datetime import date
 import pytest
 
 from app.agents.meeting_agent import MeetingProtocolAgent, ModelResponseError
-from app.models.schemas import TranscriptSegment
+from app.models.schemas import ActionItem, TranscriptSegment
 
 
 class FakeAgent(MeetingProtocolAgent):
@@ -130,6 +130,75 @@ def test_missing_required_response_keys_trigger_safe_fallback():
     assert result.action_items == []
     assert result.warnings
     assert any("отсутствуют speakers/action_items" in warning for warning in result.warnings)
+
+
+
+def test_completed_fact_is_not_treated_as_new_action():
+    agent = FakeAgent({})
+    assert agent._grounded("Подготовить отчёт", "Ерлан уже подготовил отчёт.") is False
+    assert agent._grounded("Отправить письмо", "Ботагоз отправила письмо вчера.") is False
+    assert agent._grounded("Проверить договор", "Договор уже проверен.") is False
+
+
+def test_later_explicit_cancellation_removes_active_action():
+    transcript = [
+        TranscriptSegment(id=1, start=0, end=3, speaker_id="S1", text="Ерлан, подготовь отчёт к пятнице."),
+        TranscriptSegment(id=2, start=3, end=6, speaker_id="S1", text="Отменяем поручение подготовить отчёт."),
+    ]
+    payload = {
+        "speakers": [],
+        "action_items": [
+            {"task": "Подготовить отчёт", "assignee": "Ерлан", "author_speaker_id": "S1", "deadline_text": "к пятнице", "evidence_segment_id": 1, "confidence": 0.95, "needs_review": False}
+        ],
+    }
+    result = FakeAgent(payload).run(transcript, date(2026, 9, 21), "Cancelled")
+    assert result.action_items == []
+    assert any("позднее отменено/снято" in warning for warning in result.warnings)
+
+
+def test_unrelated_cancellation_does_not_remove_action():
+    transcript = [
+        TranscriptSegment(id=1, start=0, end=3, speaker_id="S1", text="Ерлан, подготовь отчёт к пятнице."),
+        TranscriptSegment(id=2, start=3, end=6, speaker_id="S1", text="Отменяем поручение проверить договор."),
+    ]
+    payload = {
+        "speakers": [],
+        "action_items": [
+            {"task": "Подготовить отчёт", "assignee": "Ерлан", "author_speaker_id": "S1", "deadline_text": "к пятнице", "evidence_segment_id": 1, "confidence": 0.95, "needs_review": False}
+        ],
+    }
+    result = FakeAgent(payload).run(transcript, date(2026, 9, 21), "Not cancelled")
+    assert len(result.action_items) == 1
+
+
+def test_dedup_never_synthesizes_fields_from_different_evidence():
+    agent = FakeAgent({})
+    first = ActionItem(
+        task="Подготовить отчёт",
+        assignee="Ерлан",
+        deadline_text=None,
+        deadline_iso=None,
+        evidence="Ерлан, подготовь отчёт.",
+        evidence_start=0,
+        evidence_end=2,
+        confidence=0.90,
+    )
+    second = ActionItem(
+        task="Подготовить отчет",
+        assignee=None,
+        deadline_text="к пятнице",
+        deadline_iso=date(2026, 9, 25),
+        evidence="Подготовить отчёт к пятнице.",
+        evidence_start=2,
+        evidence_end=4,
+        confidence=0.91,
+    )
+    merged = agent._merge_duplicates(first, second)
+    valid_pairs = {
+        (first.evidence, first.assignee, first.deadline_text),
+        (second.evidence, second.assignee, second.deadline_text),
+    }
+    assert (merged.evidence, merged.assignee, merged.deadline_text) in valid_pairs
 
 
 def test_malformed_assignee_dash_does_not_crash():
