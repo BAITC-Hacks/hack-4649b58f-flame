@@ -32,6 +32,31 @@ st.markdown(
         --teal: #1FA7A0;
     }
 
+    @keyframes qaz-rise {
+        from { opacity: 0; transform: translateY(14px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes qaz-float {
+        0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+        50% { transform: translate3d(-18px, 16px, 0) scale(1.06); }
+    }
+
+    @keyframes qaz-pulse {
+        0%, 100% { opacity: .55; transform: scale(.82); }
+        50% { opacity: 1; transform: scale(1.18); }
+    }
+
+    @keyframes qaz-wave {
+        0%, 100% { height: 8px; opacity: .58; }
+        50% { height: 28px; opacity: 1; }
+    }
+
+    @keyframes qaz-sheen {
+        0% { transform: translateX(-140%) skewX(-18deg); }
+        70%, 100% { transform: translateX(420%) skewX(-18deg); }
+    }
+
     .stApp {
         background:
             radial-gradient(circle at 8% 5%, rgba(99, 91, 255, 0.11), transparent 25rem),
@@ -54,6 +79,7 @@ st.markdown(
         background: linear-gradient(128deg, #24234F 0%, #5149D8 52%, #168C91 130%);
         box-shadow: 0 20px 55px rgba(46, 43, 122, 0.22);
         margin-bottom: 1.35rem;
+        animation: qaz-rise .62s cubic-bezier(.2,.75,.25,1) both;
     }
 
     .qaz-hero::after {
@@ -65,6 +91,21 @@ st.markdown(
         top: -105px;
         border-radius: 50%;
         background: rgba(255, 255, 255, 0.09);
+        animation: qaz-float 8s ease-in-out infinite;
+        pointer-events: none;
+    }
+
+    .qaz-hero::before {
+        content: "";
+        position: absolute;
+        width: 170px;
+        height: 170px;
+        left: 56%;
+        bottom: -132px;
+        border: 1px solid rgba(255,255,255,.12);
+        border-radius: 50%;
+        box-shadow: 0 0 0 34px rgba(255,255,255,.035), 0 0 0 68px rgba(255,255,255,.025);
+        pointer-events: none;
     }
 
     .qaz-eyebrow {
@@ -79,6 +120,16 @@ st.markdown(
         font-weight: 700;
         letter-spacing: .09em;
         text-transform: uppercase;
+    }
+
+    .qaz-eyebrow::before {
+        content: "";
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: #75F1D7;
+        box-shadow: 0 0 0 5px rgba(117,241,215,.13);
+        animation: qaz-pulse 2s ease-in-out infinite;
     }
 
     .qaz-hero h1 {
@@ -111,6 +162,81 @@ st.markdown(
         color: rgba(255,255,255,.92);
         font-size: .82rem;
         font-weight: 600;
+        transition: transform .2s ease, background .2s ease;
+    }
+
+    .qaz-feature:hover {
+        transform: translateY(-2px);
+        background: rgba(255,255,255,.18);
+    }
+
+    .qaz-signal {
+        position: absolute;
+        z-index: 1;
+        right: 2.4rem;
+        bottom: 2.15rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 5px;
+        width: 86px;
+        height: 44px;
+        padding: 0 12px;
+        border: 1px solid rgba(255,255,255,.18);
+        border-radius: 14px;
+        background: rgba(13,19,61,.18);
+        backdrop-filter: blur(8px);
+    }
+
+    .qaz-signal span {
+        width: 4px;
+        min-height: 8px;
+        border-radius: 99px;
+        background: linear-gradient(180deg, #FFFFFF, #75F1D7);
+        animation: qaz-wave 1.15s ease-in-out infinite;
+        animation-delay: calc(var(--i) * -0.13s);
+    }
+
+    .qaz-flow {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: .7rem;
+        margin: 0 0 1.35rem;
+        animation: qaz-rise .62s .1s cubic-bezier(.2,.75,.25,1) both;
+    }
+
+    .qaz-flow-item {
+        display: flex;
+        align-items: center;
+        gap: .72rem;
+        padding: .78rem .9rem;
+        border: 1px solid rgba(99,91,255,.11);
+        border-radius: 14px;
+        background: rgba(255,255,255,.66);
+        color: var(--muted);
+        font-size: .82rem;
+        font-weight: 600;
+        backdrop-filter: blur(9px);
+        transition: transform .2s ease, border-color .2s ease, box-shadow .2s ease;
+    }
+
+    .qaz-flow-item:hover {
+        transform: translateY(-3px);
+        border-color: rgba(99,91,255,.28);
+        box-shadow: 0 9px 22px rgba(31,38,69,.07);
+    }
+
+    .qaz-flow-number {
+        display: grid;
+        place-items: center;
+        flex: 0 0 27px;
+        width: 27px;
+        height: 27px;
+        border-radius: 9px;
+        background: linear-gradient(135deg, #635BFF, #1FA7A0);
+        color: white;
+        font-size: .72rem;
+        box-shadow: 0 5px 13px rgba(99,91,255,.2);
     }
 
     [data-testid="stVerticalBlockBorderWrapper"] {
@@ -118,6 +244,8 @@ st.markdown(
         border-radius: 18px;
         background: var(--surface);
         box-shadow: 0 8px 28px rgba(31, 38, 69, 0.055);
+        animation: qaz-rise .5s cubic-bezier(.2,.75,.25,1) both;
+        transition: border-color .2s ease, box-shadow .2s ease;
     }
 
     [data-testid="stMetric"] {
@@ -127,6 +255,13 @@ st.markdown(
         border-radius: 16px;
         background: var(--surface);
         box-shadow: 0 8px 24px rgba(31, 38, 69, 0.045);
+        transition: transform .2s ease, border-color .2s ease, box-shadow .2s ease;
+    }
+
+    [data-testid="stMetric"]:hover {
+        transform: translateY(-4px);
+        border-color: rgba(99,91,255,.24);
+        box-shadow: 0 14px 32px rgba(31,38,69,.09);
     }
 
     [data-testid="stMetricLabel"] { color: var(--muted); }
@@ -140,6 +275,24 @@ st.markdown(
         box-shadow: 0 9px 22px rgba(99, 91, 255, .24);
         font-weight: 700;
         transition: transform .15s ease, box-shadow .15s ease;
+        position: relative;
+        overflow: hidden;
+    }
+
+    .stButton > button[kind="primary"]::after,
+    .stDownloadButton > button[kind="primary"]::after {
+        content: "";
+        position: absolute;
+        inset: -35% auto -35% -25%;
+        width: 22%;
+        background: rgba(255,255,255,.28);
+        filter: blur(1px);
+        animation: qaz-sheen 4.8s ease-in-out infinite;
+        pointer-events: none;
+    }
+
+    .stButton > button[kind="primary"]:disabled::after {
+        display: none;
     }
 
     .stButton > button[kind="primary"]:hover,
@@ -165,6 +318,11 @@ st.markdown(
         border-radius: 10px;
         padding-left: 1rem;
         padding-right: 1rem;
+        transition: color .18s ease, background .18s ease, transform .18s ease;
+    }
+
+    [data-baseweb="tab"]:hover {
+        transform: translateY(-1px);
     }
 
     [aria-selected="true"][data-baseweb="tab"] {
@@ -185,6 +343,19 @@ st.markdown(
         font-weight: 800;
         letter-spacing: .1em;
         text-transform: uppercase;
+        display: flex;
+        align-items: center;
+        gap: .48rem;
+        animation: qaz-rise .42s cubic-bezier(.2,.75,.25,1) both;
+    }
+
+    .qaz-section-label::before {
+        content: "";
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, var(--brand), var(--teal));
+        box-shadow: 0 0 0 5px rgba(99,91,255,.08);
     }
 
     .qaz-export-copy {
@@ -193,10 +364,24 @@ st.markdown(
         margin-top: -.35rem;
     }
 
+    @media (max-width: 900px) {
+        .qaz-signal { display: none; }
+    }
+
     @media (max-width: 720px) {
         [data-testid="stMainBlockContainer"] { padding: 1rem .8rem 2rem; }
         .qaz-hero { padding: 1.55rem 1.3rem; border-radius: 19px; }
         .qaz-feature-row { display: none; }
+        .qaz-flow { grid-template-columns: 1fr; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after {
+            scroll-behavior: auto !important;
+            animation-duration: .01ms !important;
+            animation-iteration-count: 1 !important;
+            transition-duration: .01ms !important;
+        }
     }
     </style>
     """,
@@ -356,7 +541,7 @@ def _render_result(result: MeetingResult, source_label: str) -> None:
 st.markdown(
     """
     <section class="qaz-hero">
-        <span class="qaz-eyebrow">● Local first · HackAlem AI</span>
+        <span class="qaz-eyebrow">Local first · HackAlem AI</span>
         <h1>QazMeeting AI</h1>
         <p>Превращает локальную запись совещания в проверяемый протокол: саммари,
         поручения, сроки, говорящие и готовый DOCX.</p>
@@ -366,7 +551,17 @@ st.markdown(
             <span class="qaz-feature">Ручная проверка</span>
             <span class="qaz-feature">Локальная обработка</span>
         </div>
+        <div class="qaz-signal" aria-hidden="true">
+            <span style="--i:1"></span><span style="--i:2"></span>
+            <span style="--i:3"></span><span style="--i:4"></span>
+            <span style="--i:5"></span><span style="--i:6"></span>
+        </div>
     </section>
+    <div class="qaz-flow" aria-label="Этапы подготовки протокола">
+        <div class="qaz-flow-item"><span class="qaz-flow-number">01</span>Распознавание речи</div>
+        <div class="qaz-flow-item"><span class="qaz-flow-number">02</span>Локальный анализ</div>
+        <div class="qaz-flow-item"><span class="qaz-flow-number">03</span>Проверка и DOCX</div>
+    </div>
     """,
     unsafe_allow_html=True,
 )
