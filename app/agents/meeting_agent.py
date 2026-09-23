@@ -87,7 +87,7 @@ ACTION_STEM_GROUPS = {
 ACTION_STEM_GROUPS["make"] += ("жаса",)
 ACTION_STEM_GROUPS["prepare"] += ("дайында", "әзірле")
 ACTION_STEM_GROUPS["send"] += ("жібер",)
-ACTION_STEM_GROUPS["find"] += ("таб", "тап", "ізде")
+ACTION_STEM_GROUPS["find"] += ("таб", "ізде")
 ACTION_STEM_GROUPS["check"] += ("тексер",)
 ACTION_STEM_GROUPS["collect"] += ("жина",)
 ACTION_STEM_GROUPS["approve"] += ("келіс",)
@@ -148,8 +148,12 @@ KAZAKH_COMPLETED_ACTION_PATTERN = re.compile(
     r"орындады|келісті|төледі)\b",
     re.I,
 )
+KAZAKH_COMPLETED_SIGNATURE_ALIASES = {
+    "тапты": "find",
+    "төледі": "pay",
+}
 CANCELLATION_PATTERNS = [
-    re.compile(r"\b(?:отменяем|отменили|отменить)\s+(?:(?:это|данное|старое)\s+)?поручение\b", re.I),
+    re.compile(r"\b(?:отменяем|отменили|отменить|отмена)\b", re.I),
     re.compile(r"\bотмена\s+(?:(?:этого|данного|старого)\s+)?поручения\b", re.I),
     re.compile(r"\b(?:снимаем|снять|сняли)\s+(?:это\s+|данное\s+)?поручение\b", re.I),
     re.compile(r"\bпоручение\s+(?:снимается|отменяется|отменено)\b", re.I),
@@ -501,8 +505,12 @@ class MeetingProtocolAgent:
                 mentioned_in_evidence = bool(assignee and self._name_in_text(assignee, evidence.text))
                 mentioned_in_author_context = bool(
                     assignee
-                    and not self._name_is_negated_or_alternative(assignee, author_context_text)
-                    and self._name_in_text(assignee, author_context_text)
+                    and any(
+                        segment.id != evidence.id
+                        and segment.speaker_id == evidence.speaker_id
+                        and self._neighbor_assigns_name(assignee, segment.text)
+                        for segment in author_context
+                    )
                 )
                 known_speaker_name = confirmed_names.get(evidence.speaker_id)
                 self_assignment = bool(
@@ -1023,7 +1031,11 @@ class MeetingProtocolAgent:
                 break
         if not completed_for_task:
             for match in KAZAKH_COMPLETED_ACTION_PATTERN.finditer(text):
-                past_actions = self._action_signatures(self._norm(match.group(0)))
+                completed = self._norm(match.group(0))
+                past_actions = self._action_signatures(completed)
+                alias = KAZAKH_COMPLETED_SIGNATURE_ALIASES.get(completed)
+                if alias:
+                    past_actions.add(alias)
                 if task_actions and task_actions & past_actions:
                     completed_for_task = True
                     break
@@ -1145,6 +1157,23 @@ class MeetingProtocolAgent:
     def _name_in_text(self, name: str, text: str) -> bool:
         return bool(self._name_match_spans(name, text))
 
+    def _neighbor_assigns_name(self, name: str, text: str) -> bool:
+        if not self._name_in_text(name, text) or self._name_is_negated_or_alternative(name, text):
+            return False
+        normalized = self._norm(text)
+        return any(
+            phrase in normalized
+            for phrase in (
+                "это тебе",
+                "тебе поручено",
+                "ответственный",
+                "ответственная",
+                "исполнитель",
+                "жауапты",
+                "бұл саған",
+            )
+        )
+
     def _same_task(self, left: str, right: str) -> bool:
         left_norm, right_norm = self._norm(left), self._norm(right)
         if left_norm == right_norm:
@@ -1167,11 +1196,17 @@ class MeetingProtocolAgent:
         if left is None or right is None:
             return True
         left_tokens, right_tokens = self._norm(left).split(), self._norm(right).split()
-        if not left_tokens or not right_tokens or not self._token_match(left_tokens[0], right_tokens[0]):
+        if not left_tokens or not right_tokens:
             return False
-        if len(left_tokens) == 1 or len(right_tokens) == 1:
-            return True
-        return any(self._token_match(l, r) for l in left_tokens[1:] for r in right_tokens[1:])
+        shorter, longer = (
+            (left_tokens, right_tokens)
+            if len(left_tokens) <= len(right_tokens)
+            else (right_tokens, left_tokens)
+        )
+        return all(
+            self._token_match(token, longer[index])
+            for index, token in enumerate(shorter)
+        )
 
     def _same_deadline(self, left: ActionItem, right: ActionItem) -> bool:
         if left.deadline_iso and right.deadline_iso:
