@@ -12,9 +12,8 @@ from calendar import monthrange
 from datetime import date, timedelta
 from difflib import SequenceMatcher
 from typing import Any
-from urllib.parse import urlparse
 
-from app.config import local_model_url
+from app.config import local_model_url, validate_local_model_url
 from app.models.schemas import ActionItem, AgentEvent, MeetingResult, SpeakerInfo, TranscriptSegment
 
 DEFAULT_MODEL = "qwen2.5:3b-instruct-q4_K_M"
@@ -232,18 +231,18 @@ class ModelResponseError(RuntimeError):
     pass
 
 
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise urllib.error.HTTPError(req.full_url, code, "Ollama redirects are disabled", headers, fp)
+
+
 class MeetingProtocolAgent:
     def __init__(self, model: str | None = None, base_url: str | None = None, timeout: float = 120) -> None:
         self.model = model or os.getenv("OLLAMA_MODEL") or DEFAULT_MODEL
-        self.base_url = (base_url or local_model_url()).rstrip("/")
+        self.base_url = validate_local_model_url(base_url if base_url is not None else local_model_url())
         if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not math.isfinite(float(timeout)) or timeout <= 0:
             raise ValueError("timeout must be a positive finite number")
         self.timeout = float(timeout)
-        parsed = urlparse(self.base_url)
-        if parsed.scheme != "http" or parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
-            raise ValueError("Ollama endpoint must use http on localhost")
-        if parsed.username or parsed.password:
-            raise ValueError("Ollama endpoint credentials are not allowed")
 
     def run(
         self,
@@ -341,7 +340,7 @@ class MeetingProtocolAgent:
         }, ensure_ascii=False).encode()
         req = urllib.request.Request(f"{self.base_url}/api/chat", data=data, headers={"Content-Type": "application/json"}, method="POST")
         # Never honor HTTP(S)_PROXY for meeting data. Even localhost traffic must stay local.
-        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirectHandler())
         try:
             with opener.open(req, timeout=self.timeout) as response:
                 envelope = json.loads(response.read().decode())
@@ -541,14 +540,15 @@ class MeetingProtocolAgent:
                         self._deadline_is_negated(deadline_text, segment.text)
                         for segment in matching_segments
                     )
-                    deadline_conflict = deadline_negated or any(
+                    competing_deadlines = any(
                         len(self._deadline_candidates(segment.text)) > 1
                         for segment in matching_segments
                     )
+                    deadline_conflict = deadline_negated or competing_deadlines
                     if deadline_negated:
                         review = True
                         notes.append("выбранный срок в исходной реплике указан с отрицанием")
-                    elif deadline_conflict:
+                    if competing_deadlines:
                         review = True
                         notes.append("в реплике со сроком обнаружено несколько конкурирующих сроков")
                     if not in_evidence:
@@ -563,6 +563,9 @@ class MeetingProtocolAgent:
                     deadline_text = inferred_deadline
                     review = True
                     notes.append("срок восстановлен детерминированно из evidence")
+                    if self._deadline_is_negated(deadline_text, evidence.text):
+                        deadline_conflict = True
+                        notes.append("выбранный срок в исходной реплике указан с отрицанием")
 
             deadline_iso, ambiguous = self._deadline(deadline_text, meeting_date)
             if deadline_conflict:
@@ -878,16 +881,26 @@ class MeetingProtocolAgent:
         return re.search(pattern, text_norm) is not None
 
     def _deadline_candidates(self, text: str) -> list[str]:
-        matches: list[tuple[int, str]] = []
+        matches: list[tuple[int, int, str]] = []
         for pattern in DEADLINE_PATTERNS:
             for match in pattern.finditer(text):
                 value = " ".join(match.group(0).split()).strip(" ,.;:")
                 if value:
-                    matches.append((match.start(), value))
+                    matches.append((match.start(), match.end(), value))
+        # A numeric-date match may be contained in an ISO date. Keep the
+        # complete source span instead of treating the suffix as a second date.
+        matches = [
+            match for match in matches
+            if not any(
+                other[0] <= match[0] and match[1] <= other[1]
+                and (other[0], other[1]) != (match[0], match[1])
+                for other in matches
+            )
+        ]
         matches.sort(key=lambda item: item[0])
         unique: list[str] = []
         seen: set[str] = set()
-        for _, value in matches:
+        for _, _, value in matches:
             normalized = self._norm(value)
             if normalized and normalized not in seen:
                 unique.append(value)
@@ -1044,7 +1057,7 @@ class MeetingProtocolAgent:
 
     def _contains_exact_phrase(self, phrase: str, text: str) -> bool:
         phrase_norm, text_norm = self._norm(phrase), self._norm(text)
-        return bool(phrase_norm) and phrase_norm in text_norm
+        return bool(phrase_norm) and re.search(r"\b" + re.escape(phrase_norm) + r"\b", text_norm) is not None
 
     def _action_signatures(self, text: str) -> set[str]:
         signatures: set[str] = set()

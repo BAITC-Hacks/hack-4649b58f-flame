@@ -243,8 +243,8 @@ def test_local_ollama_transport_disables_environment_proxies(monkeypatch):
         captured["proxies"] = proxies
         return object()
 
-    def fake_build_opener(handler):
-        captured["handler"] = handler
+    def fake_build_opener(*handlers):
+        captured["handlers"] = handlers
         return DummyOpener()
 
     monkeypatch.setattr(urllib.request, "ProxyHandler", fake_proxy_handler)
