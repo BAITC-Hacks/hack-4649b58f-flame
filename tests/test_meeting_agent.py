@@ -975,3 +975,72 @@ def test_clear_third_person_commitment_is_kept():
         "Подготовить отчёт",
         "Ерлан подготовит отчёт к пятнице.",
     ) is True
+
+
+def test_kazakh_assignment_is_grounded():
+    agent = FakeAgent({})
+    assert agent._grounded(
+        "Есепті дайындау",
+        "Ерлан, есепті сәрсенбіге дейін дайындаңыз.",
+    ) is True
+
+
+def test_kazakh_completed_fact_is_not_new_assignment():
+    agent = FakeAgent({})
+    assert agent._grounded(
+        "Есепті дайындау",
+        "Ерлан есепті кеше дайындады.",
+    ) is False
+
+
+def test_kazakh_open_question_is_not_assignment():
+    agent = FakeAgent({})
+    assert agent._grounded(
+        "Есепті дайындау",
+        "Кім есепті дайындай алады?",
+    ) is False
+
+
+def test_kazakh_deadline_weekday_is_normalized():
+    agent = FakeAgent({})
+    actual, ambiguous = agent._deadline("сәрсенбіге дейін", date(2026, 9, 21))
+    assert actual == date(2026, 9, 23)
+    assert ambiguous is False
+
+
+def test_kazakh_two_week_deadline_is_normalized():
+    agent = FakeAgent({})
+    actual, ambiguous = agent._deadline("екі апта ішінде", date(2026, 9, 21))
+    assert actual == date(2026, 10, 5)
+    assert ambiguous is False
+
+
+def test_kazakh_self_assignment_uses_confirmed_speaker_name():
+    transcript = [
+        TranscriptSegment(
+            id=1,
+            start=0,
+            end=4,
+            speaker_id="S1",
+            speaker_name="Ерлан",
+            text="Мен есепті жұмаға дейін дайындаймын.",
+            language="kk",
+        )
+    ]
+    payload = {
+        "speakers": [],
+        "action_items": [
+            {
+                "task": "Есепті дайындау",
+                "assignee": "Ерлан",
+                "author_speaker_id": "S1",
+                "deadline_text": "жұмаға дейін",
+                "evidence_segment_id": 1,
+                "confidence": 0.95,
+                "needs_review": False,
+            }
+        ],
+    }
+    result = FakeAgent(payload).run(transcript, date(2026, 9, 21), "Kazakh")
+    assert result.action_items[0].assignee == "Ерлан"
+    assert result.action_items[0].deadline_iso == date(2026, 9, 25)
