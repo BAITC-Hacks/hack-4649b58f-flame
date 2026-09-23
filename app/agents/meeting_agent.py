@@ -59,15 +59,14 @@ NON_ASSIGNMENT_PATTERNS = [
     re.compile(r"\bкто\s+(?:может|сможет|готов)\b", re.I),
     re.compile(r"\b(?:нужно|надо|стоит|можно)\s+ли\b", re.I),
 ]
-COMPLETED_FACT_PATTERNS = [
-    re.compile(
-        r"\b(?:уже\s+)?(?:сделал(?:а|и)?|подготовил(?:а|и)?|отправил(?:а|и)?|"
-        r"проверил(?:а|и)?|наш[её]л|нашла|нашли|собрал(?:а|и)?|предоставил(?:а|и)?|"
-        r"разработал(?:а|и)?|уточнил(?:а|и)?|организовал(?:а|и)?|сформировал(?:а|и)?)\b",
-        re.I,
-    ),
-    re.compile(r"\b(?:готово|выполнено|завершено|сделано|подготовлено|отправлено|проверено)\b", re.I),
-]
+COMPLETED_FACT_PATTERN = re.compile(
+    r"\b(?:сделал(?:а|и)?|подготовил(?:а|и)?|отправил(?:а|и)?|проверил(?:а|и)?|"
+    r"наш[её]л|нашла|нашли|собрал(?:а|и)?|предоставил(?:а|и)?|разработал(?:а|и)?|"
+    r"уточнил(?:а|и)?|организовал(?:а|и)?|сформировал(?:а|и)?|выполнил(?:а|и)?|"
+    r"завершил(?:а|и)?|сделано|подготовлено|отправлено|проверено|выполнено|завершено)\b",
+    re.I,
+)
+COMPLETED_ROOT_ALIASES = {"нашел": "найти", "нашёл": "найти", "нашла": "найти", "нашли": "найти"}
 CANCELLATION_PATTERNS = [
     re.compile(r"\b(?:отменяем|отменили|отменить|отмена)\b", re.I),
     re.compile(r"\b(?:снимаем|снять|сняли)\s+(?:это\s+)?поручение\b", re.I),
@@ -197,8 +196,10 @@ class MeetingProtocolAgent:
             ],
         }, ensure_ascii=False).encode()
         req = urllib.request.Request(f"{self.base_url}/api/chat", data=data, headers={"Content-Type": "application/json"}, method="POST")
+        # Never honor HTTP(S)_PROXY for meeting data. Even localhost traffic must stay local.
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as response:
+            with opener.open(req, timeout=self.timeout) as response:
                 envelope = json.loads(response.read().decode())
             content = envelope["message"]["content"]
         except (urllib.error.URLError, TimeoutError, socket.timeout, json.JSONDecodeError, KeyError, TypeError) as exc:
@@ -467,7 +468,7 @@ class MeetingProtocolAgent:
     def _merge_duplicates(self, first: ActionItem, second: ActionItem) -> ActionItem:
         # Never synthesize assignee/deadline from different evidence fragments.
         # Choose one complete, grounded record and keep its evidence and fields together.
-        return max(
+        selected = max(
             (first, second),
             key=lambda item: (
                 bool(item.assignee) + bool(item.deadline_text),
@@ -476,6 +477,18 @@ class MeetingProtocolAgent:
                 len(self._content_tokens(self._norm(item.task))),
             ),
         )
+        other = second if selected is first else first
+        lost_detail = (
+            (selected.assignee is None and other.assignee is not None)
+            or (selected.deadline_text is None and other.deadline_text is not None)
+        )
+        if selected.evidence != other.evidence and lost_detail:
+            note = "дубликаты содержат разные детали; поля из разных evidence не объединялись"
+            return selected.model_copy(update={
+                "needs_review": True,
+                "warning": self._append_warning(selected.warning, note),
+            })
+        return selected
 
     def _remove_cancelled(
         self,
@@ -508,17 +521,21 @@ class MeetingProtocolAgent:
 
     @staticmethod
     def _find_evidence_index(item: ActionItem, transcript: list[TranscriptSegment]) -> int | None:
-        for index, segment in enumerate(transcript):
+        matches = [
+            index for index, segment in enumerate(transcript)
             if (
                 segment.text == item.evidence
                 and segment.start == item.evidence_start
                 and segment.end == item.evidence_end
-            ):
-                return index
-        return None
+            )
+        ]
+        return matches[0] if len(matches) == 1 else None
 
     @staticmethod
     def _is_explicit_cancellation(text: str) -> bool:
+        normalized = " ".join(WORDS.findall(text.casefold().replace("ё", "е")))
+        if re.search(r"\bне (?:надо|нужно) забыва", normalized):
+            return False
         return any(pattern.search(text) for pattern in CANCELLATION_PATTERNS)
 
     def _task_mentioned(self, task: str, text: str) -> bool:
@@ -540,6 +557,8 @@ class MeetingProtocolAgent:
         if not task_norm or not evidence_norm:
             return False
         if self._is_negated_or_non_assignment(evidence):
+            return False
+        if self._is_completed_fact_for_task(task, evidence):
             return False
         task_qualifiers = self._qualifiers(task_norm)
         evidence_qualifiers = self._qualifiers(evidence_norm)
@@ -622,10 +641,21 @@ class MeetingProtocolAgent:
 
     @staticmethod
     def _is_negated_or_non_assignment(text: str) -> bool:
-        return any(
-            pattern.search(text)
-            for pattern in (*NEGATED_ACTION_PATTERNS, *NON_ASSIGNMENT_PATTERNS, *COMPLETED_FACT_PATTERNS)
-        )
+        normalized = " ".join(WORDS.findall(text.casefold().replace("ё", "е")))
+        if re.search(r"\bне (?:надо|нужно) забыва", normalized):
+            return any(pattern.search(text) for pattern in NON_ASSIGNMENT_PATTERNS)
+        return any(pattern.search(text) for pattern in (*NEGATED_ACTION_PATTERNS, *NON_ASSIGNMENT_PATTERNS))
+
+    def _is_completed_fact_for_task(self, task: str, text: str) -> bool:
+        task_roots = {self._root(token) for token in self._content_tokens(self._norm(task))}
+        if not task_roots:
+            return False
+        for match in COMPLETED_FACT_PATTERN.finditer(text):
+            completed = self._norm(match.group(0))
+            completed_root = COMPLETED_ROOT_ALIASES.get(completed, self._root(completed))
+            if completed_root in task_roots:
+                return True
+        return False
 
     @staticmethod
     def _root(token: str) -> str:
