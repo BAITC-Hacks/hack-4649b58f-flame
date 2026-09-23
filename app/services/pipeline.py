@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import importlib
 import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -25,32 +24,16 @@ class PipelineStageError(RuntimeError):
 
 
 def resolve_audio_processor() -> AudioProcessor:
-    """Find the local audio team's public function without copying its implementation."""
+    """Import the audio team's confirmed public function without copying its logic."""
 
-    candidates = (
-        ("app.services.audio", "process_audio"),
-        ("app.services.audio_pipeline", "process_audio"),
-        ("app.audio", "process_audio"),
-    )
-    errors: list[str] = []
-    for module_name, attribute in candidates:
-        try:
-            module = importlib.import_module(module_name)
-        except ModuleNotFoundError as exc:
-            if exc.name != module_name:
-                errors.append(f"{module_name}: отсутствует зависимость {exc.name}")
-            continue
-        function = getattr(module, attribute, None)
-        if callable(function):
-            return function
-        errors.append(f"{module_name}: нет функции {attribute}")
-
-    suffix = f" Детали: {'; '.join(errors)}" if errors else ""
-    raise PipelineStageError(
-        "Распознавание аудио",
-        "process_audio пока не подключён. Ожидается локальная функция в ветке feature/audio."
-        + suffix,
-    )
+    try:
+        from app.services.audio import process_audio
+    except (ImportError, ModuleNotFoundError) as exc:
+        raise PipelineStageError(
+            "Распознавание аудио",
+            f"Не удалось импортировать app.services.audio.process_audio: {exc}",
+        ) from exc
+    return process_audio
 
 
 def run_local_pipeline(
@@ -104,4 +87,3 @@ def run_local_pipeline(
     finally:
         if temp_path is not None:
             temp_path.unlink(missing_ok=True)
-
