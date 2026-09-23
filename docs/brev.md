@@ -19,7 +19,7 @@ repository and run:
 python3.11 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements-brev.txt
-ollama pull qwen3:1.7b
+ollama pull qwen2.5:3b-instruct-q4_K_M
 ```
 
 The current `faster-whisper` CUDA runtime requires compatible CUDA 12 cuBLAS
@@ -37,7 +37,7 @@ export AUDIO_STT_BACKEND=faster-whisper
 export AUDIO_STT_MODEL=small
 export AUDIO_STT_DEVICE=cuda
 export AUDIO_STT_COMPUTE_TYPE=float16
-export OLLAMA_MODEL=qwen3:1.7b
+export OLLAMA_MODEL=qwen2.5:3b-instruct-q4_K_M
 export QAZMEETING_DB_PATH="$PWD/data/meetings.sqlite3"
 
 python -m streamlit run streamlit_app.py \
