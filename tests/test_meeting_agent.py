@@ -943,3 +943,35 @@ def test_negated_deadline_keeps_text_but_no_exact_date():
     assert item.deadline_iso is None
     assert item.needs_review is True
     assert "с отрицанием" in (item.warning or "")
+
+
+def test_discussion_or_historical_plan_is_not_a_new_assignment():
+    agent = FakeAgent({})
+    assert agent._grounded(
+        "Подготовить отчёт",
+        "Обсуждали возможность подготовить отчёт.",
+    ) is False
+    assert agent._grounded(
+        "Подготовить отчёт",
+        "Нужно было подготовить отчёт ещё вчера.",
+    ) is False
+    assert agent._grounded(
+        "Подготовить отчёт",
+        "Ерлан собирался подготовить отчёт.",
+    ) is False
+
+
+def test_bare_infinitive_directive_is_kept():
+    agent = FakeAgent({})
+    assert agent._grounded(
+        "Подготовить отчёт",
+        "Подготовить отчёт к пятнице.",
+    ) is True
+
+
+def test_clear_third_person_commitment_is_kept():
+    agent = FakeAgent({})
+    assert agent._grounded(
+        "Подготовить отчёт",
+        "Ерлан подготовит отчёт к пятнице.",
+    ) is True
