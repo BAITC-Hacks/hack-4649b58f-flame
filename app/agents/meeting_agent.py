@@ -216,11 +216,12 @@ DEADLINE_PATTERNS = [
         re.I,
     ),
     re.compile(
-        rf"\b(?:{'|'.join(KZ_WEEKDAYS)})(?:ге|ға|ке|қа)?(?:\s+дейін)?\b",
+        rf"\b(?:{'|'.join(KZ_WEEKDAYS)})(?:(?:ге|ға|ке|қа)(?:\s+дейін)?|\s+дейін)\b",
         re.I,
     ),
     re.compile(
-        rf"\b(?:\d+|{KZ_NUMBER_WORDS_RE})\s+(?:күн|апта)(?:\s+ішінде)?\b",
+        rf"\b(?:\d+|{KZ_NUMBER_WORDS_RE})\s+(?:күн|апта)"
+        r"(?:\s+ішінде|(?:дан|ден|тан|тен|нан|нен)\s+кейін)\b",
         re.I,
     ),
     re.compile(r"\bаптаның\s+соңына\s+дейін\b", re.I),
@@ -616,7 +617,8 @@ class MeetingProtocolAgent:
                 return meeting_date + timedelta(days=count * (7 if relative.group(2).startswith("недел") else 1)), False
 
         kz_relative = re.search(
-            rf"\b(\d+|{KZ_NUMBER_WORDS_RE}) (күн|апта)(?: ішінде)?\b",
+            rf"\b(\d+|{KZ_NUMBER_WORDS_RE}) (күн|апта)"
+            r"(?: ішінде|(?:дан|ден|тан|тен|нан|нен) кейін)\b",
             text,
         )
         if kz_relative:
@@ -661,7 +663,7 @@ class MeetingProtocolAgent:
                     return None, True
                 return meeting_date + timedelta(days=delta), False
         for word, weekday in KZ_WEEKDAYS.items():
-            if re.search(rf"\b{word}(?:ге|ға|ке|қа)?(?: дейін)?\b", text):
+            if re.search(rf"\b{word}(?:(?:ге|ға|ке|қа)(?: дейін)?| дейін)\b", text):
                 delta = (weekday - meeting_date.weekday()) % 7
                 if delta == 0:
                     return None, True
