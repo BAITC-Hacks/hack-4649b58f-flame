@@ -62,11 +62,18 @@ ACTION_STEM_GROUPS = {
     "clarify": ("уточн",),
     "organize": ("организ",),
     "form": ("сформ",),
-    "approve": ("соглас",),
+    "approve": ("соглас", "утверд"),
     "review": ("рассмотр",),
     "calculate": ("рассчит", "посчит"),
     "contact": ("связ", "позвон"),
     "pay": ("оплат",),
+    "sign": ("подпис",),
+    "direct": ("направ",),
+    "order": ("заказ",),
+    "deliver": ("достав",),
+    "create": ("созд",),
+    "update": ("обнов",),
+    "fix": ("исправ",),
 }
 POSITIVE_REMINDER_PATTERN = re.compile(
     r"\bне\s+(?:(?:надо|нужно|следует|стоит)\s+)?(?:забывать|забыть|забудь|забывайте)\b",
@@ -99,6 +106,7 @@ COMPLETED_FACT_PATTERN = re.compile(
     re.I,
 )
 COMPLETED_ROOT_ALIASES = {"нашел": "найти", "нашёл": "найти", "нашла": "найти", "нашли": "найти"}
+PAST_VERB_PATTERN = re.compile(r"\b[А-Яа-яЁё]{4,}(?:л|ла|ли|ло|лся|лась|лись)\b", re.I)
 CANCELLATION_PATTERNS = [
     re.compile(r"\b(?:отменяем|отменили|отменить)\s+(?:(?:это|данное|старое)\s+)?поручение\b", re.I),
     re.compile(r"\bотмена\s+(?:(?:этого|данного|старого)\s+)?поручения\b", re.I),
@@ -413,19 +421,28 @@ class MeetingProtocolAgent:
 
             assignee = self._string(item.get("assignee"))
             if assignee:
-                mentioned_in_evidence = self._name_in_text(assignee, evidence.text)
-                mentioned_in_author_context = self._name_in_text(assignee, author_context_text)
+                if self._name_is_negated_or_alternative(assignee, evidence.text):
+                    assignee = None
+                    review = True
+                    notes.append("исполнитель упомянут как отрицание или альтернатива")
+                mentioned_in_evidence = bool(assignee and self._name_in_text(assignee, evidence.text))
+                mentioned_in_author_context = bool(
+                    assignee
+                    and not self._name_is_negated_or_alternative(assignee, author_context_text)
+                    and self._name_in_text(assignee, author_context_text)
+                )
                 known_speaker_name = confirmed_names.get(evidence.speaker_id)
                 self_assignment = bool(
-                    known_speaker_name
+                    assignee
+                    and known_speaker_name
                     and self._compatible_assignees(assignee, known_speaker_name)
                     and self._is_self_assignment(task, evidence.text)
                 )
-                if not (mentioned_in_author_context or self_assignment):
+                if assignee and not (mentioned_in_author_context or self_assignment):
                     assignee = None
                     review = True
                     notes.append("исполнитель не подтверждён evidence, контекстом автора или идентичностью говорящего")
-                elif not mentioned_in_evidence and not self_assignment:
+                elif assignee and not mentioned_in_evidence and not self_assignment:
                     review = True
                     notes.append("исполнитель подтверждён только соседней репликой автора")
 
@@ -447,11 +464,18 @@ class MeetingProtocolAgent:
                     review = True
                     notes.append("исходный текст срока не найден в evidence или соседней реплике")
                 else:
-                    deadline_conflict = any(
+                    deadline_negated = any(
+                        self._deadline_is_negated(deadline_text, segment.text)
+                        for segment in matching_segments
+                    )
+                    deadline_conflict = deadline_negated or any(
                         len(self._deadline_candidates(segment.text)) > 1
                         for segment in matching_segments
                     )
-                    if deadline_conflict:
+                    if deadline_negated:
+                        review = True
+                        notes.append("выбранный срок в исходной реплике указан с отрицанием")
+                    elif deadline_conflict:
                         review = True
                         notes.append("в реплике со сроком обнаружено несколько конкурирующих сроков")
                     if not in_evidence:
@@ -748,6 +772,14 @@ class MeetingProtocolAgent:
             f"требуют проверки: {review}. {'; '.join(details)}.{more}"
         ).strip()
 
+    def _deadline_is_negated(self, deadline_text: str, text: str) -> bool:
+        deadline_norm = self._norm(deadline_text)
+        text_norm = self._norm(text)
+        if not deadline_norm or not text_norm:
+            return False
+        pattern = r"\bне\s+" + r"\s+".join(re.escape(token) for token in deadline_norm.split()) + r"\b"
+        return re.search(pattern, text_norm) is not None
+
     def _deadline_candidates(self, text: str) -> list[str]:
         matches: list[tuple[int, str]] = []
         for pattern in DEADLINE_PATTERNS:
@@ -822,16 +854,24 @@ class MeetingProtocolAgent:
         return bad_match
 
     def _is_completed_fact_for_task(self, task: str, text: str) -> bool:
-        task_roots = {self._root(token) for token in self._content_tokens(self._norm(task))}
-        if not task_roots:
+        task_norm = self._norm(task)
+        task_roots = {self._root(token) for token in self._content_tokens(task_norm)}
+        task_actions = self._action_signatures(task_norm)
+        if not task_roots and not task_actions:
             return False
         completed_for_task = False
-        for match in COMPLETED_FACT_PATTERN.finditer(text):
-            completed = self._norm(match.group(0))
-            completed_root = COMPLETED_ROOT_ALIASES.get(completed, self._root(completed))
-            if completed_root in task_roots:
+        for match in PAST_VERB_PATTERN.finditer(text):
+            past_actions = self._action_signatures(self._norm(match.group(0)))
+            if task_actions and task_actions & past_actions:
                 completed_for_task = True
                 break
+        if not completed_for_task:
+            for match in COMPLETED_FACT_PATTERN.finditer(text):
+                completed = self._norm(match.group(0))
+                completed_root = COMPLETED_ROOT_ALIASES.get(completed, self._root(completed))
+                if completed_root in task_roots:
+                    completed_for_task = True
+                    break
         if not completed_for_task:
             return False
 
@@ -883,17 +923,17 @@ class MeetingProtocolAgent:
         return signatures
 
     def _self_identifies(self, name: str, text: str) -> bool:
-        first = self._norm(name).split()
-        if not first:
+        normalized_name = self._norm(name)
+        if not normalized_name:
             return False
-        normalized = self._norm(text)
-        token = re.escape(first[0])
+        normalized_text = self._norm(text)
+        name_pattern = r"\s+".join(re.escape(token) for token in normalized_name.split())
         return any(
-            re.search(pattern, normalized) is not None
+            re.search(pattern, normalized_text) is not None
             for pattern in (
-                rf"\bменя зовут {token}\b",
-                rf"\bя {token}\b",
-                rf"\bэто {token}\b",
+                rf"\bменя зовут {name_pattern}\b",
+                rf"\bя {name_pattern}\b",
+                rf"\bэто {name_pattern}\b",
             )
         )
 
@@ -907,6 +947,21 @@ class MeetingProtocolAgent:
             if task_actions & self._action_signatures(self._norm(match.group(0))):
                 return True
         return False
+
+    def _name_is_negated_or_alternative(self, name: str, text: str) -> bool:
+        normalized_name = self._norm(name)
+        normalized_text = self._norm(text)
+        if not normalized_name or not normalized_text:
+            return False
+        name_pattern = r"\s+".join(re.escape(token) for token in normalized_name.split())
+        return any(
+            re.search(pattern, normalized_text) is not None
+            for pattern in (
+                rf"\bне\s+{name_pattern}\b",
+                rf"\b{ name_pattern }\s+(?:или|либо)\b",
+                rf"\b(?:или|либо)\s+{name_pattern}\b",
+            )
+        )
 
     def _name_in_text(self, name: str, text: str) -> bool:
         name_tokens = [token for token in self._norm(name).split() if len(token) >= 3]
