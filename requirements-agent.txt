@@ -1,0 +1,5 @@
+# MeetingProtocolAgent has no extra Python runtime dependency beyond requirements.txt.
+# Ollama is installed separately as a local service; no cloud AI SDK is used.
+# Windows PowerShell (Ollama): irm https://ollama.com/install.ps1 | iex
+# Model install: ollama pull qwen2.5:3b-instruct-q4_K_M
+# Manual run/check: ollama run qwen2.5:3b-instruct-q4_K_M

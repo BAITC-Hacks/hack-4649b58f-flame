@@ -1,0 +1,15 @@
+{
+  "meeting_date": "2026-09-23",
+  "expected_action_items": [
+    {"task_keywords": ["стратегию", "закупа сырья"], "assignee": "Гульмира Сериковна", "deadline_keywords": ["15 октября"]},
+    {"task_keywords": ["график поставок", "проектным институтом"], "assignee": "Айнур Каировна", "deadline_keywords": ["26 сентября"]},
+    {"task_keywords": ["финансовое решение", "Павлодар"], "assignee": "Тимур Болатович", "deadline_keywords": ["30 сентября"]},
+    {"task_keywords": ["штрафных санкций", "контракт"], "assignee": "Юридический департамент", "deadline_keywords": ["30 сентября"]},
+    {"task_keywords": ["сводный отчет", "совещани"], "assignee": "Гульмира Сериковна", "deadline_keywords": ["20 октября"]},
+    {"task_keywords": ["подрядчик", "доложить"], "assignee": "Гульмира Сериковна", "deadline_keywords": ["пятниц"]},
+    {"task_keywords": ["аудит", "датчик", "11 площад"], "assignee": "Нурлан Сагатович", "deadline_keywords": ["15 октября"]},
+    {"task_keywords": ["внеплановый инструктаж", "газоопас"], "assignee": "Нурлан Сагатович", "deadline_keywords": ["следующ"], "optional": true},
+    {"task_keywords": ["бюджет", "инвест"], "assignee": "Тимур Болатович", "deadline_keywords": ["недел"], "optional": true},
+    {"task_keywords": ["юрист", "претензи", "подрядчик"], "assignee": "Айнур Каировна", "deadline_keywords": ["сред"]}
+  ]
+}

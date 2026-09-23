@@ -5,7 +5,7 @@ __pycache__/
 .env
 .env.*
 !.env.example
-models/
+/models/
 output/
 *.mp3
 *.wav
