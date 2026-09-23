@@ -538,3 +538,252 @@ def test_real_ollama_smoke():
     assert all(item.evidence in {segment.text for segment in transcript} for item in result.action_items)
     assignees = {item.assignee for item in result.action_items}
     assert {"Ерлан", "Салтанат Ерболовна", "Ботагоз Нурлановна"}.issubset(assignees)
+
+
+def test_extra_second_action_is_not_accepted_from_shared_object():
+    agent = FakeAgent({})
+    assert agent._grounded(
+        "Подготовить и отправить отчёт",
+        "Ерлан, подготовь отчёт.",
+    ) is False
+    assert agent._grounded(
+        "Проверить и отправить договор",
+        "Ерлан, проверь договор.",
+    ) is False
+
+
+def test_negative_infinitive_is_not_an_assignment():
+    agent = FakeAgent({})
+    assert agent._grounded("Подготовить отчёт", "Не готовить отчёт до пятницы.") is False
+    assert agent._grounded("Отправить письмо", "Письмо не отправлять.") is False
+
+
+def test_unrelated_negative_clause_does_not_cancel_task():
+    agent = FakeAgent({})
+    text = "Не нужно менять бюджет, отчёт подготовить к пятнице."
+    assert agent._cancels_task("Подготовить отчёт", text) is False
+
+
+def test_direct_negative_clause_cancels_matching_task():
+    agent = FakeAgent({})
+    assert agent._cancels_task("Подготовить отчёт", "Не нужно готовить отчёт.") is True
+    assert agent._cancels_task("Отправить письмо", "Письмо не отправлять.") is True
+
+
+def test_unrelated_explicit_cancellation_in_same_line_does_not_cancel_new_task():
+    agent = FakeAgent({})
+    text = "Отменяем старое поручение, подготовить отчёт к пятнице."
+    assert agent._cancels_task("Подготовить отчёт", text) is False
+
+
+def test_full_name_must_be_one_contiguous_mention():
+    agent = FakeAgent({})
+    text = "Ерлан, подготовь отчёт. Ботагоз Нурлановна найдёт поставщика."
+    assert agent._name_in_text("Ерлан Нурланович", text) is False
+    assert agent._name_in_text(
+        "Ботагоз Нурлановна",
+        "Ботагоз Нурлановне поручено найти поставщика.",
+    ) is True
+
+
+def test_self_identification_does_not_match_dative_name():
+    agent = FakeAgent({})
+    assert agent._self_identifies("Ерлан", "Я Ерлану уже сказал про отчёт.") is False
+    assert agent._self_identifies("Ерлан", "Я Ерлан, подключился к совещанию.") is True
+
+
+def test_known_speaker_can_be_assignee_for_first_person_commitment():
+    transcript = [
+        TranscriptSegment(
+            id=1,
+            start=0,
+            end=3,
+            speaker_id="S1",
+            speaker_name="Ерлан",
+            text="Я подготовлю отчёт к пятнице.",
+        )
+    ]
+    payload = {
+        "speakers": [],
+        "action_items": [
+            {
+                "task": "Подготовить отчёт",
+                "assignee": "Ерлан",
+                "author_speaker_id": "S1",
+                "deadline_text": "к пятнице",
+                "evidence_segment_id": 1,
+                "confidence": 0.95,
+                "needs_review": False,
+            }
+        ],
+    }
+    result = FakeAgent(payload).run(transcript, date(2026, 9, 21), "Self assignment")
+    assert result.action_items[0].assignee == "Ерлан"
+
+
+def test_first_person_other_action_does_not_validate_wrong_self_assignee():
+    transcript = [
+        TranscriptSegment(
+            id=1,
+            start=0,
+            end=4,
+            speaker_id="S1",
+            speaker_name="Ботагоз",
+            text="Я проверю, как Ерлан подготовит отчёт.",
+        )
+    ]
+    payload = {
+        "speakers": [],
+        "action_items": [
+            {
+                "task": "Подготовить отчёт",
+                "assignee": "Ботагоз",
+                "author_speaker_id": "S1",
+                "deadline_text": None,
+                "evidence_segment_id": 1,
+                "confidence": 0.95,
+                "needs_review": False,
+            }
+        ],
+    }
+    result = FakeAgent(payload).run(transcript, date(2026, 9, 21), "Wrong self assignment")
+    assert result.action_items[0].assignee is None
+    assert result.action_items[0].needs_review is True
+
+
+def test_paraphrased_deadline_is_replaced_with_source_wording_from_evidence():
+    transcript = [
+        TranscriptSegment(
+            id=1,
+            start=0,
+            end=3,
+            speaker_id="S1",
+            text="Ерлан, подготовь отчёт в пятницу.",
+        )
+    ]
+    payload = {
+        "speakers": [],
+        "action_items": [
+            {
+                "task": "Подготовить отчёт",
+                "assignee": "Ерлан",
+                "author_speaker_id": "S1",
+                "deadline_text": "к пятнице",
+                "evidence_segment_id": 1,
+                "confidence": 0.95,
+                "needs_review": False,
+            }
+        ],
+    }
+    result = FakeAgent(payload).run(transcript, date(2026, 9, 21), "Source deadline")
+    item = result.action_items[0]
+    assert item.deadline_text == "в пятницу"
+    assert item.deadline_iso == date(2026, 9, 25)
+    assert item.needs_review is True
+
+
+def test_deadline_from_other_speaker_neighbor_is_kept_but_reviewed():
+    transcript = [
+        TranscriptSegment(id=1, start=0, end=3, speaker_id="S1", text="Ерлан, подготовь отчёт."),
+        TranscriptSegment(id=2, start=3, end=5, speaker_id="S2", text="Срок — к пятнице."),
+    ]
+    payload = {
+        "speakers": [],
+        "action_items": [
+            {
+                "task": "Подготовить отчёт",
+                "assignee": "Ерлан",
+                "author_speaker_id": "S1",
+                "deadline_text": "к пятнице",
+                "evidence_segment_id": 1,
+                "confidence": 0.95,
+                "needs_review": False,
+            }
+        ],
+    }
+    result = FakeAgent(payload).run(transcript, date(2026, 9, 21), "Neighbor deadline")
+    item = result.action_items[0]
+    assert item.deadline_text == "к пятнице"
+    assert item.deadline_iso == date(2026, 9, 25)
+    assert item.needs_review is True
+    assert "другого говорящего" in (item.warning or "")
+
+
+def test_two_digit_year_is_left_ambiguous():
+    agent = FakeAgent({})
+    actual, ambiguous = agent._deadline("25.09.26", date(2026, 9, 21))
+    assert actual is None
+    assert ambiguous is True
+
+
+def test_boolean_confidence_does_not_become_one():
+    agent = FakeAgent({})
+    assert agent._conf(True, 0.5) == 0.5
+    assert agent._conf(False, 0.5) == 0.5
+
+
+def test_invalid_timeout_is_rejected():
+    with pytest.raises(ValueError):
+        MeetingProtocolAgent(base_url="http://127.0.0.1:11434", timeout=0)
+    with pytest.raises(ValueError):
+        MeetingProtocolAgent(base_url="http://127.0.0.1:11434", timeout=float("nan"))
+
+
+def test_non_boolean_needs_review_is_treated_as_review_required():
+    transcript = [
+        TranscriptSegment(id=1, start=0, end=3, speaker_id="S1", text="Ерлан, подготовь отчёт.")
+    ]
+    payload = {
+        "speakers": [],
+        "action_items": [
+            {
+                "task": "Подготовить отчёт",
+                "assignee": "Ерлан",
+                "author_speaker_id": "S1",
+                "deadline_text": None,
+                "evidence_segment_id": 1,
+                "confidence": 0.95,
+                "needs_review": "false",
+            }
+        ],
+    }
+    result = FakeAgent(payload).run(transcript, date(2026, 9, 21), "Bad review type")
+    assert result.action_items[0].needs_review is True
+    assert "неверный тип" in (result.action_items[0].warning or "")
+
+
+def test_compatible_but_differently_specific_assignees_are_reviewed_on_dedup():
+    agent = FakeAgent({})
+    first = ActionItem(
+        task="Подготовить отчёт",
+        assignee="Ерлан",
+        evidence="Ерлан, подготовь отчёт.",
+        evidence_start=0,
+        evidence_end=2,
+        confidence=0.9,
+    )
+    second = ActionItem(
+        task="Подготовить отчет",
+        assignee="Ерлан Серикович",
+        evidence="Ерлан Серикович, подготовьте отчёт.",
+        evidence_start=2,
+        evidence_end=4,
+        confidence=0.95,
+    )
+    warnings = []
+    result = agent._dedupe([first, second], warnings)
+    assert len(result) == 1
+    assert result[0].needs_review is True
+    assert "по-разному уточняют исполнителя" in (result[0].warning or "")
+    assert any("по-разному уточняют исполнителя" in warning for warning in warnings)
+
+
+def test_action_inflections_are_recognized_as_same_task():
+    agent = FakeAgent({})
+    assert agent._same_task("Найти поставщика", "Найдите поставщика") is True
+
+
+def test_empty_transcript_has_explicit_safe_summary():
+    result = FakeAgent({"speakers": [], "action_items": []}).run([], date(2026, 9, 21), "Empty")
+    assert result.action_items == []
+    assert result.summary == "Подтверждённые поручения не извлечены."
