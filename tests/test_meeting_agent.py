@@ -81,6 +81,57 @@ def test_changed_object_hallucination_is_rejected():
     assert agent._grounded("Подготовить отчёт о продажах", "Подготовьте отчёт о закупках") is False
 
 
+
+def test_negated_instruction_is_not_extracted():
+    agent = FakeAgent({})
+    assert agent._grounded("Готовить отчёт", "Ерлан, не надо готовить отчёт.") is False
+    assert agent._grounded("Подготовить отчёт", "Ерлан, не готовьте отчёт.") is False
+    assert agent._grounded("Подготовить отчёт", "Отменяем поручение подготовить отчёт.") is False
+
+
+def test_open_question_without_assignment_is_rejected():
+    agent = FakeAgent({})
+    assert agent._grounded("Подготовить отчёт", "Кто может подготовить отчёт?") is False
+    assert agent._grounded("Подготовить отчёт", "Нужно ли подготовить отчёт?") is False
+
+
+def test_short_task_qualifiers_prevent_false_grounding_and_dedup():
+    agent = FakeAgent({})
+    assert agent._grounded("Проверить поставщика A", "Проверить поставщика B.") is False
+    assert agent._same_task("Проверить SKU 1", "Проверить SKU 2") is False
+    assert agent._same_task("Проверить поставщика A", "Проверить поставщика B") is False
+
+
+def test_same_first_name_different_patronymics_are_not_compatible():
+    agent = FakeAgent({})
+    assert agent._compatible_assignees("Ерлан Серикович", "Ерлан Нурланович") is False
+    assert agent._compatible_assignees("Ерлан", "Ерлан Серикович") is True
+
+
+def test_explicit_past_deadline_is_normalized_but_marked_for_review():
+    transcript = [
+        TranscriptSegment(id=1, start=0, end=3, speaker_id="S1", text="Ерлан, отправь отчёт до 05.09.2026.")
+    ]
+    payload = {
+        "speakers": [],
+        "action_items": [
+            {"task": "Отправить отчёт", "assignee": "Ерлан", "author_speaker_id": "S1", "deadline_text": "до 05.09.2026", "evidence_segment_id": 1, "confidence": 0.95, "needs_review": False}
+        ],
+    }
+    result = FakeAgent(payload).run(transcript, date(2026, 9, 21), "Past deadline")
+    assert result.action_items[0].deadline_iso == date(2026, 9, 5)
+    assert result.action_items[0].needs_review is True
+    assert "раньше даты совещания" in (result.action_items[0].warning or "")
+
+
+def test_missing_required_response_keys_trigger_safe_fallback():
+    transcript = fixed_transcript()
+    result = FakeAgent({"summary": "x"}).run(transcript, date(2026, 9, 21), "Missing keys")
+    assert result.action_items == []
+    assert result.warnings
+    assert any("отсутствуют speakers/action_items" in warning for warning in result.warnings)
+
+
 def test_malformed_assignee_dash_does_not_crash():
     transcript = [TranscriptSegment(id=1, start=0, end=3, speaker_id="S1", text="Подготовить отчёт к пятнице.")]
     payload = {
