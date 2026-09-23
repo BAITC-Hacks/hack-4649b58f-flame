@@ -87,10 +87,11 @@ ACTION_STEM_GROUPS = {
 ACTION_STEM_GROUPS["make"] += ("жаса",)
 ACTION_STEM_GROUPS["prepare"] += ("дайында", "әзірле")
 ACTION_STEM_GROUPS["send"] += ("жібер",)
-ACTION_STEM_GROUPS["find"] += ("таб", "ізде")
+ACTION_STEM_GROUPS["find"] += ("таб", "тап", "ізде")
 ACTION_STEM_GROUPS["check"] += ("тексер",)
 ACTION_STEM_GROUPS["collect"] += ("жина",)
 ACTION_STEM_GROUPS["approve"] += ("келіс",)
+ACTION_STEM_GROUPS["pay"] += ("төле",)
 POSITIVE_REMINDER_PATTERN = re.compile(
     r"\bне\s+(?:(?:надо|нужно|следует|стоит)\s+)?(?:забывать|забыть|забудь|забывайте)\b",
     re.I,
@@ -215,7 +216,7 @@ DEADLINE_PATTERNS = [
         re.I,
     ),
     re.compile(
-        rf"\b(?:{'|'.join(KZ_WEEKDAYS)})(?:(?:ге|ға|ке|қа)(?:\s+дейін)?|\s+дейін)\b",
+        rf"\b(?:келесі\s+)?(?:{'|'.join(KZ_WEEKDAYS)})(?:(?:ге|ға|ке|қа)(?:\s+дейін)?|\s+дейін)\b",
         re.I,
     ),
     re.compile(
@@ -607,6 +608,8 @@ class MeetingProtocolAgent:
         if "сегодня" in text or "бүгін" in text:
             return meeting_date, False
         if "аптаның соңына дейін" in text:
+            return None, True
+        if re.search(r"\bкелесі\b", text):
             return None, True
 
         relative = re.search(
