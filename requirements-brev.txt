@@ -4,5 +4,5 @@
 # Local multilingual speech recognition on NVIDIA/Linux. No audio is sent to an API.
 faster-whisper>=1.1,<2
 
-# Optional diarization; missing or gated model yields UNKNOWN speaker IDs.
-pyannote.audio>=4,<5
+# Optional diarization can be installed separately after gated model access is
+# granted. Without it, segments retain speaker_id="UNKNOWN".
