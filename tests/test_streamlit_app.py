@@ -13,6 +13,7 @@ def test_demo_mode_renders_result_and_download():
     assert not app.exception
     assert any("Саммари" in subheader.value for subheader in app.subheader)
     assert len(app.download_button) == 1
+    assert app.download_button[0].label == "Скачать DOCX"
 
     app.radio[0].set_value("Локальная обработка аудио").run()
     assert not app.exception
