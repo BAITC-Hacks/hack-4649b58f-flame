@@ -422,26 +422,36 @@ class MeetingProtocolAgent:
                     notes.append("исполнитель подтверждён только соседней репликой автора")
 
             deadline_text = self._string(item.get("deadline_text"))
+            deadline_conflict = False
             if deadline_text:
                 in_evidence = self._contains_exact_phrase(deadline_text, evidence.text)
                 same_speaker_match = any(
                     self._contains_exact_phrase(deadline_text, segment.text)
                     for segment in author_context
                 )
-                any_neighbor_match = any(
-                    self._contains_exact_phrase(deadline_text, segment.text)
+                matching_segments = [
+                    segment
                     for segment in context
-                )
-                if not any_neighbor_match:
+                    if self._contains_exact_phrase(deadline_text, segment.text)
+                ]
+                if not matching_segments:
                     deadline_text = None
                     review = True
                     notes.append("исходный текст срока не найден в evidence или соседней реплике")
-                elif not in_evidence:
-                    review = True
-                    if same_speaker_match:
-                        notes.append("срок подтверждён только соседней репликой автора")
-                    else:
-                        notes.append("срок подтверждён соседней репликой другого говорящего")
+                else:
+                    deadline_conflict = any(
+                        len(self._deadline_candidates(segment.text)) > 1
+                        for segment in matching_segments
+                    )
+                    if deadline_conflict:
+                        review = True
+                        notes.append("в реплике со сроком обнаружено несколько конкурирующих сроков")
+                    if not in_evidence:
+                        review = True
+                        if same_speaker_match:
+                            notes.append("срок подтверждён только соседней репликой автора")
+                        else:
+                            notes.append("срок подтверждён соседней репликой другого говорящего")
             if deadline_text is None:
                 inferred_deadline = self._extract_deadline_text(evidence.text)
                 if inferred_deadline:
@@ -450,6 +460,8 @@ class MeetingProtocolAgent:
                     notes.append("срок восстановлен детерминированно из evidence")
 
             deadline_iso, ambiguous = self._deadline(deadline_text, meeting_date)
+            if deadline_conflict:
+                deadline_iso, ambiguous = None, True
             if deadline_text and ambiguous:
                 review = True
                 notes.append("срок сохранён дословно, но точная дата неоднозначна")
@@ -720,21 +732,26 @@ class MeetingProtocolAgent:
             f"требуют проверки: {review}. {'; '.join(details)}.{more}"
         ).strip()
 
-    def _extract_deadline_text(self, text: str) -> str | None:
+    def _deadline_candidates(self, text: str) -> list[str]:
         matches: list[tuple[int, str]] = []
         for pattern in DEADLINE_PATTERNS:
             for match in pattern.finditer(text):
                 value = " ".join(match.group(0).split()).strip(" ,.;:")
                 if value:
                     matches.append((match.start(), value))
-        if not matches:
-            return None
         matches.sort(key=lambda item: item[0])
         unique: list[str] = []
+        seen: set[str] = set()
         for _, value in matches:
-            if self._norm(value) not in {self._norm(item) for item in unique}:
+            normalized = self._norm(value)
+            if normalized and normalized not in seen:
                 unique.append(value)
-        return unique[0] if len(unique) == 1 else None
+                seen.add(normalized)
+        return unique
+
+    def _extract_deadline_text(self, text: str) -> str | None:
+        candidates = self._deadline_candidates(text)
+        return candidates[0] if len(candidates) == 1 else None
 
     @staticmethod
     def _context(transcript: list[TranscriptSegment], index: int, radius: int = 1) -> list[TranscriptSegment]:
