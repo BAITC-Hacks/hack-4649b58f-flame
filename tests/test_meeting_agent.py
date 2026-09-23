@@ -819,3 +819,35 @@ def test_competing_deadlines_in_same_evidence_do_not_get_exact_date():
     assert item.deadline_iso is None
     assert item.needs_review is True
     assert "конкурирующих сроков" in (item.warning or "")
+
+
+def test_unrelated_negative_sentence_in_same_segment_does_not_block_task():
+    agent = FakeAgent({})
+    assert agent._grounded(
+        "Подготовить отчёт",
+        "Не отправляй письмо. Ерлан, подготовь отчёт к пятнице.",
+    ) is True
+
+
+def test_question_about_other_task_in_same_segment_does_not_block_assignment():
+    agent = FakeAgent({})
+    assert agent._grounded(
+        "Подготовить отчёт",
+        "Кто может проверить договор? Ерлан, подготовь отчёт.",
+    ) is True
+
+
+def test_completed_same_action_does_not_hide_explicit_new_assignment():
+    agent = FakeAgent({})
+    assert agent._grounded(
+        "Отправить новый отчёт",
+        "Ерлан отправил старый отчёт и должен отправить новый отчёт.",
+    ) is True
+
+
+def test_completed_task_stays_rejected_when_followed_by_unrelated_assignment():
+    agent = FakeAgent({})
+    assert agent._grounded(
+        "Отправить отчёт",
+        "Ерлан отправил отчёт и должен проверить договор.",
+    ) is False
