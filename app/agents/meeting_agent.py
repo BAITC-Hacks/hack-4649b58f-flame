@@ -115,6 +115,14 @@ FIRST_PERSON_ACTION_PATTERN = re.compile(
     r"разработаю|уточню|организую|сформирую|возьму|согласую|рассчитаю|оплачу)\b",
     re.I,
 )
+ASSIGNMENT_CUE_PATTERN = re.compile(
+    r"\b(?:нужно|надо|необходимо|следует|должен|должна|прошу|поручаю|давайте|пусть|"
+    r"сделай|сделайте|подготовь|подготовьте|отправь|отправьте|найди|найдите|"
+    r"проверь|проверьте|собери|соберите|предоставь|предоставьте|разработай|"
+    r"разработайте|уточни|уточните|организуй|организуйте|сформируй|сформируйте|"
+    r"согласуй|согласуйте|рассчитай|рассчитайте|оплати|оплатите|свяжись|свяжитесь)\b",
+    re.I,
+)
 DEADLINE_PATTERNS = [
     re.compile(r"\b(?:сегодня|завтра|послезавтра)\b", re.I),
     re.compile(
@@ -658,9 +666,17 @@ class MeetingProtocolAgent:
     def _is_explicit_cancellation(text: str) -> bool:
         return any(pattern.search(text) for pattern in CANCELLATION_PATTERNS)
 
-    def _cancels_task(self, task: str, text: str) -> bool:
+    @staticmethod
+    def _clauses(text: str) -> list[str]:
         normalized_text = re.sub(r",?\s*пожалуйста\s*,?", " ", text, flags=re.I)
-        for clause in re.split(r"[,;.!?]|\b(?:а|но|зато)\b", normalized_text, flags=re.I):
+        return [
+            clause.strip()
+            for clause in re.split(r"[,;.!?]|\b(?:а|но|зато)\b", normalized_text, flags=re.I)
+            if clause.strip()
+        ]
+
+    def _cancels_task(self, task: str, text: str) -> bool:
+        for clause in self._clauses(text):
             cleaned = POSITIVE_REMINDER_PATTERN.sub("", clause)
             if not cleaned.strip():
                 continue
@@ -694,7 +710,7 @@ class MeetingProtocolAgent:
             return False
         if self._cancels_task(task, evidence):
             return False
-        if self._is_negated_or_non_assignment(evidence):
+        if self._is_negated_or_non_assignment_for_task(task, evidence):
             return False
         if self._is_completed_fact_for_task(task, evidence):
             return False
@@ -793,16 +809,45 @@ class MeetingProtocolAgent:
         cleaned = POSITIVE_REMINDER_PATTERN.sub("", text)
         return any(pattern.search(cleaned) for pattern in (*NEGATED_ACTION_PATTERNS, *NON_ASSIGNMENT_PATTERNS))
 
+    def _is_negated_or_non_assignment_for_task(self, task: str, text: str) -> bool:
+        bad_match = False
+        for clause in self._clauses(text):
+            cleaned = POSITIVE_REMINDER_PATTERN.sub("", clause)
+            if not cleaned.strip() or not self._task_mentioned(task, cleaned):
+                continue
+            if any(pattern.search(cleaned) for pattern in (*NEGATED_ACTION_PATTERNS, *NON_ASSIGNMENT_PATTERNS)):
+                bad_match = True
+                continue
+            return False
+        return bad_match
+
     def _is_completed_fact_for_task(self, task: str, text: str) -> bool:
         task_roots = {self._root(token) for token in self._content_tokens(self._norm(task))}
         if not task_roots:
             return False
+        completed_for_task = False
         for match in COMPLETED_FACT_PATTERN.finditer(text):
             completed = self._norm(match.group(0))
             completed_root = COMPLETED_ROOT_ALIASES.get(completed, self._root(completed))
             if completed_root in task_roots:
-                return True
-        return False
+                completed_for_task = True
+                break
+        if not completed_for_task:
+            return False
+
+        clauses = [
+            clause.strip()
+            for clause in re.split(r"[,;.!?]|\b(?:а|но|зато|и)\b", text, flags=re.I)
+            if clause.strip()
+        ]
+        for clause in clauses:
+            if COMPLETED_FACT_PATTERN.search(clause):
+                continue
+            if not self._task_mentioned(task, clause):
+                continue
+            if ASSIGNMENT_CUE_PATTERN.search(clause) or self._is_self_assignment(task, clause):
+                return False
+        return True
 
     @staticmethod
     def _root(token: str) -> str:
