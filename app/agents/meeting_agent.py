@@ -50,6 +50,15 @@ GENERIC_ACTION_ROOTS = {
     "сдела", "подго", "подгот", "найти", "найд", "прове", "отпра", "собра",
     "предо", "разра", "уточн", "реши", "орган", "сфор",
 }
+NEGATED_ACTION_PATTERNS = [
+    re.compile(r"\bне\s+(?:надо|нужно|требуется|следует)\b", re.I),
+    re.compile(r"\bне\s+(?:делай|делайте|готовь|готовьте|подготавливай|подготавливайте|отправляй|отправляйте|проверяй|проверяйте)\b", re.I),
+    re.compile(r"\b(?:отменяем|отменили|отмена|снимаем\s+поручение|поручение\s+снимается)\b", re.I),
+]
+NON_ASSIGNMENT_PATTERNS = [
+    re.compile(r"\bкто\s+(?:может|сможет|готов)\b", re.I),
+    re.compile(r"\b(?:нужно|надо|стоит|можно)\s+ли\b", re.I),
+]
 DEADLINE_PATTERNS = [
     re.compile(r"\b(?:сегодня|завтра|послезавтра)\b", re.I),
     re.compile(
@@ -228,8 +237,16 @@ class MeetingProtocolAgent:
             payload = json.loads(text)
         except json.JSONDecodeError as exc:
             raise ModelResponseError("ответ не JSON") from exc
-        if not isinstance(payload, dict) or not isinstance(payload.get("speakers", []), list) or not isinstance(payload.get("action_items", []), list):
-            raise ModelResponseError("неверная структура JSON")
+        if not isinstance(payload, dict):
+            raise ModelResponseError("корневой JSON должен быть объектом")
+        if "speakers" not in payload or "action_items" not in payload:
+            raise ModelResponseError("в JSON отсутствуют speakers/action_items")
+        speakers = payload["speakers"]
+        actions = payload["action_items"]
+        if not isinstance(speakers, list) or not isinstance(actions, list):
+            raise ModelResponseError("speakers и action_items должны быть массивами")
+        if len(speakers) > 100 or len(actions) > 200:
+            raise ModelResponseError("ответ локальной модели превышает безопасный лимит")
         return payload
 
     def _speakers(self, raw: list[Any], transcript: list[TranscriptSegment], warnings: list[str]) -> list[SpeakerInfo]:
@@ -325,6 +342,9 @@ class MeetingProtocolAgent:
             if deadline_text and ambiguous:
                 review = True
                 notes.append("срок сохранён дословно, но точная дата неоднозначна")
+            if deadline_iso and meeting_date and deadline_iso < meeting_date:
+                review = True
+                notes.append("нормализованный срок раньше даты совещания")
             confidence = self._conf(item.get("confidence"), 0.5)
             if confidence < 0.7:
                 review = True
@@ -449,6 +469,12 @@ class MeetingProtocolAgent:
         task_norm, evidence_norm = self._norm(task), self._norm(evidence)
         if not task_norm or not evidence_norm:
             return False
+        if self._is_negated_or_non_assignment(evidence):
+            return False
+        task_qualifiers = self._qualifiers(task_norm)
+        evidence_qualifiers = self._qualifiers(evidence_norm)
+        if task_qualifiers and not task_qualifiers.issubset(evidence_qualifiers):
+            return False
         if task_norm in evidence_norm:
             return True
         task_tokens, evidence_tokens = self._content_tokens(task_norm), self._content_tokens(evidence_norm)
@@ -521,6 +547,13 @@ class MeetingProtocolAgent:
     def _content_tokens(self, text: str) -> list[str]:
         return [token for token in text.split() if token not in STOPWORDS and len(token) >= 3 and not token.isdigit()]
 
+    def _qualifiers(self, text: str) -> set[str]:
+        return {token for token in text.split() if token not in STOPWORDS and (token.isdigit() or len(token) <= 2)}
+
+    @staticmethod
+    def _is_negated_or_non_assignment(text: str) -> bool:
+        return any(pattern.search(text) for pattern in (*NEGATED_ACTION_PATTERNS, *NON_ASSIGNMENT_PATTERNS))
+
     @staticmethod
     def _root(token: str) -> str:
         return token if len(token) <= 4 else token[:5]
@@ -559,18 +592,26 @@ class MeetingProtocolAgent:
         left_norm, right_norm = self._norm(left), self._norm(right)
         if left_norm == right_norm:
             return True
+        left_qualifiers, right_qualifiers = self._qualifiers(left_norm), self._qualifiers(right_norm)
+        if left_qualifiers != right_qualifiers and (left_qualifiers or right_qualifiers):
+            return False
         left_tokens, right_tokens = set(self._content_tokens(left_norm)), set(self._content_tokens(right_norm))
         if not left_tokens or not right_tokens:
             return SequenceMatcher(None, left_norm, right_norm).ratio() >= 0.90
-        matched = sum(any(self._token_match(token, other) for other in right_tokens) for token in left_tokens)
-        coverage = matched / max(len(left_tokens), len(right_tokens))
-        return coverage >= 0.75 or SequenceMatcher(None, left_norm, right_norm).ratio() >= 0.88
+        left_matched = sum(any(self._token_match(token, other) for other in right_tokens) for token in left_tokens)
+        right_matched = sum(any(self._token_match(token, other) for other in left_tokens) for token in right_tokens)
+        coverage = min(left_matched / len(left_tokens), right_matched / len(right_tokens))
+        return coverage >= 0.75
 
     def _compatible_assignees(self, left: str | None, right: str | None) -> bool:
         if left is None or right is None:
             return True
         left_tokens, right_tokens = self._norm(left).split(), self._norm(right).split()
-        return bool(left_tokens and right_tokens and self._token_match(left_tokens[0], right_tokens[0]))
+        if not left_tokens or not right_tokens or not self._token_match(left_tokens[0], right_tokens[0]):
+            return False
+        if len(left_tokens) == 1 or len(right_tokens) == 1:
+            return True
+        return any(self._token_match(l, r) for l in left_tokens[1:] for r in right_tokens[1:])
 
     def _same_deadline(self, left: ActionItem, right: ActionItem) -> bool:
         if left.deadline_iso and right.deadline_iso:
