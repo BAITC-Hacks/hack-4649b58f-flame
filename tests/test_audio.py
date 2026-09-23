@@ -20,6 +20,7 @@ def _fake_stt_result():
 
 
 def test_process_audio_keeps_transcript_when_diarization_fails(tmp_path, monkeypatch):
+    monkeypatch.setenv("AUDIO_STT_BACKEND", "mlx-whisper")
     audio_path = tmp_path / "meeting.mp3"
     audio_path.write_bytes(b"not decoded by the fake backend")
     fake_mlx = types.SimpleNamespace(transcribe=lambda *_args, **_kwargs: _fake_stt_result())
@@ -35,6 +36,7 @@ def test_process_audio_keeps_transcript_when_diarization_fails(tmp_path, monkeyp
 
 
 def test_process_audio_assigns_largest_overlap(tmp_path, monkeypatch):
+    monkeypatch.setenv("AUDIO_STT_BACKEND", "mlx-whisper")
     audio_path = tmp_path / "meeting.wav"
     audio_path.write_bytes(b"fake")
     fake_mlx = types.SimpleNamespace(transcribe=lambda *_args, **_kwargs: _fake_stt_result())
