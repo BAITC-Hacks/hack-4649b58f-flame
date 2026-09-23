@@ -284,10 +284,43 @@ class MeetingProtocolAgent:
             )
 
         try:
+            chunks = self._chunk_transcript(source)
+            events.append(AgentEvent(
+                stage="chunking",
+                message=f"Транскрипт разбит на чанки: {len(chunks)}; перекрытие — одна реплика.",
+                status="success",
+            ))
             events.append(AgentEvent(stage="local_model", message=f"Локальная модель: {self.model}."))
-            raw = self._call_ollama(self._prompt(source, meeting_date, title))
-            payload = self._parse(raw)
-            events.append(AgentEvent(stage="parse", message="JSON локальной модели разобран.", status="success"))
+            payload: dict[str, Any] = {"speakers": [], "action_items": []}
+            for chunk_index, chunk in enumerate(chunks, 1):
+                raw = self._call_ollama(self._prompt(chunk, meeting_date, title))
+                chunk_payload = self._parse(raw)
+                chunk_speaker_ids = {segment.speaker_id for segment in chunk}
+                chunk_segment_ids = {segment.id for segment in chunk}
+                for speaker in chunk_payload["speakers"]:
+                    if (
+                        isinstance(speaker, dict)
+                        and self._string(speaker.get("speaker_id")) in chunk_speaker_ids
+                    ):
+                        payload["speakers"].append(speaker)
+                for action in chunk_payload["action_items"]:
+                    if (
+                        isinstance(action, dict)
+                        and action.get("evidence_segment_id") in chunk_segment_ids
+                    ):
+                        payload["action_items"].append(action)
+                    else:
+                        warnings.append(
+                            f"Чанк {chunk_index}: кандидат поручения отброшен — "
+                            "evidence_segment_id отсутствует в этом чанке."
+                        )
+                if len(payload["action_items"]) > MAX_AGGREGATE_ACTIONS:
+                    raise ModelResponseError("слишком много кандидатов поручений после обработки чанков")
+            events.append(AgentEvent(
+                stage="parse",
+                message=f"JSON локальной модели разобран для чанков: {len(chunks)}.",
+                status="success",
+            ))
         except Exception as exc:
             return self._safe_failure(title, meeting_date, source, warnings, events, exc, stage="local_model")
 
@@ -374,6 +407,42 @@ class MeetingProtocolAgent:
         if not isinstance(content, str) or not content.strip():
             raise ModelResponseError("пустой ответ Ollama")
         return content
+
+    def _chunk_transcript(self, transcript: list[TranscriptSegment]) -> list[list[TranscriptSegment]]:
+        chunks: list[list[TranscriptSegment]] = []
+        current: list[TranscriptSegment] = []
+        current_size = 0
+
+        def segment_size(segment: TranscriptSegment) -> int:
+            return len(json.dumps(segment.model_dump(), ensure_ascii=False)) + 2
+
+        for segment in transcript:
+            size = segment_size(segment)
+            if size > MAX_TRANSCRIPT_CHUNK_CHARS:
+                raise ModelResponseError(
+                    f"реплика {segment.id} слишком длинная для безопасного локального контекста"
+                )
+            if current and current_size + size > MAX_TRANSCRIPT_CHUNK_CHARS:
+                chunks.append(current)
+                overlap = [current[-1]]
+                overlap_size = segment_size(overlap[0])
+                if overlap_size + size <= MAX_TRANSCRIPT_CHUNK_CHARS:
+                    current = overlap
+                    current_size = overlap_size
+                else:
+                    current = []
+                    current_size = 0
+            current.append(segment)
+            current_size += size
+
+        if current:
+            chunks.append(current)
+        if len(chunks) > MAX_TRANSCRIPT_CHUNKS:
+            raise ModelResponseError(
+                f"транскрипт требует {len(chunks)} чанков; превышен безопасный лимит "
+                f"{MAX_TRANSCRIPT_CHUNKS}"
+            )
+        return chunks
 
     def _prompt(self, transcript: list[TranscriptSegment], meeting_date: date | None, title: str) -> str:
         rows = [s.model_dump() for s in transcript]
