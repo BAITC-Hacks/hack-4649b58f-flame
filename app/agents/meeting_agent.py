@@ -50,10 +50,43 @@ GENERIC_ACTION_ROOTS = {
     "сдела", "подго", "подгот", "найти", "найд", "прове", "отпра", "собра",
     "предо", "разра", "уточн", "реши", "орган", "сфор",
 }
+ACTION_STEM_GROUPS = {
+    "make": ("сдел",),
+    "prepare": ("подгот", "готов"),
+    "send": ("отправ",),
+    "find": ("найд", "найт", "иск"),
+    "check": ("прове",),
+    "collect": ("соб",),
+    "provide": ("предостав",),
+    "develop": ("разработ",),
+    "clarify": ("уточн",),
+    "organize": ("организ",),
+    "form": ("сформ",),
+    "approve": ("соглас",),
+    "review": ("рассмотр",),
+    "calculate": ("рассчит", "посчит"),
+    "contact": ("связ", "позвон"),
+    "pay": ("оплат",),
+}
+POSITIVE_REMINDER_PATTERN = re.compile(
+    r"\bне\s+(?:(?:надо|нужно)\s+)?(?:забывать|забыть|забудь|забывайте)\b",
+    re.I,
+)
 NEGATED_ACTION_PATTERNS = [
-    re.compile(r"\bне\s+(?:надо|нужно|требуется|следует)\b", re.I),
-    re.compile(r"\bне\s+(?:делай|делайте|готовь|готовьте|подготавливай|подготавливайте|отправляй|отправляйте|проверяй|проверяйте)\b", re.I),
-    re.compile(r"\b(?:отменяем|отменили|отмена|снимаем\s+поручение|поручение\s+снимается)\b", re.I),
+    re.compile(r"\bне\s+(?:надо|нужно|требуется|следует|стоит)\b", re.I),
+    re.compile(
+        r"\bне\s+(?:делай|делайте|готовь|готовьте|подготавливай|подготавливайте|"
+        r"отправляй|отправляйте|проверяй|проверяйте|ищи|ищите|собирай|собирайте)\b",
+        re.I,
+    ),
+    re.compile(
+        r"\bне\s+(?:делать|сделать|готовить|подготовить|отправлять|отправить|"
+        r"проверять|проверить|искать|найти|собирать|собрать|предоставлять|предоставить|"
+        r"разрабатывать|разработать|уточнять|уточнить|организовывать|организовать|"
+        r"формировать|сформировать)\b",
+        re.I,
+    ),
+    re.compile(r"\b(?:отменяем|отменили|снимаем\s+поручение|поручение\s+снимается)\b", re.I),
 ]
 NON_ASSIGNMENT_PATTERNS = [
     re.compile(r"\bкто\s+(?:может|сможет|готов)\b", re.I),
@@ -68,10 +101,19 @@ COMPLETED_FACT_PATTERN = re.compile(
 )
 COMPLETED_ROOT_ALIASES = {"нашел": "найти", "нашёл": "найти", "нашла": "найти", "нашли": "найти"}
 CANCELLATION_PATTERNS = [
-    re.compile(r"\b(?:отменяем|отменили|отменить|отмена)\b", re.I),
-    re.compile(r"\b(?:снимаем|снять|сняли)\s+(?:это\s+)?поручение\b", re.I),
+    re.compile(r"\b(?:отменяем|отменили|отменить)\s+(?:(?:это|данное)\s+)?(?:поручение\s+)?", re.I),
+    re.compile(r"\bотмена\s+(?:(?:этого|данного)\s+)?поручения\b", re.I),
+    re.compile(r"\b(?:снимаем|снять|сняли)\s+(?:это\s+|данное\s+)?поручение\b", re.I),
     re.compile(r"\bпоручение\s+(?:снимается|отменяется|отменено)\b", re.I),
-    re.compile(r"\bне\s+(?:надо|нужно|требуется|следует)\b", re.I),
+]
+SELF_ASSIGNMENT_PATTERNS = [
+    re.compile(r"\bя\b", re.I),
+    re.compile(r"\bберу\s+на\s+себя\b", re.I),
+    re.compile(
+        r"\b(?:сделаю|подготовлю|отправлю|найду|проверю|соберу|предоставлю|"
+        r"разработаю|уточню|организую|сформирую|возьму|согласую|рассчитаю|оплачу)\b",
+        re.I,
+    ),
 ]
 DEADLINE_PATTERNS = [
     re.compile(r"\b(?:сегодня|завтра|послезавтра)\b", re.I),
@@ -103,9 +145,11 @@ class ModelResponseError(RuntimeError):
 
 class MeetingProtocolAgent:
     def __init__(self, model: str | None = None, base_url: str | None = None, timeout: float = 120) -> None:
-        self.model = model or os.getenv("OLLAMA_MODEL", DEFAULT_MODEL)
+        self.model = model or os.getenv("OLLAMA_MODEL") or DEFAULT_MODEL
         self.base_url = (base_url or local_model_url()).rstrip("/")
-        self.timeout = timeout
+        if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not math.isfinite(float(timeout)) or timeout <= 0:
+            raise ValueError("timeout must be a positive finite number")
+        self.timeout = float(timeout)
         parsed = urlparse(self.base_url)
         if parsed.scheme != "http" or parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
             raise ValueError("Ollama endpoint must use http on localhost")
@@ -125,7 +169,10 @@ class MeetingProtocolAgent:
             warning = "Транскрипт пуст: поручения не извлекались."
             warnings.append(warning)
             events.append(AgentEvent(stage="validation", message=warning, status="warning"))
-            return MeetingResult(title=title, meeting_date=meeting_date, transcript=source, warnings=warnings, events=events)
+            return MeetingResult(
+                title=title, meeting_date=meeting_date, transcript=source,
+                warnings=warnings, events=events, summary="Подтверждённые поручения не извлечены.",
+            )
 
         ids = [segment.id for segment in source]
         if len(ids) != len(set(ids)):
@@ -143,17 +190,24 @@ class MeetingProtocolAgent:
             payload = self._parse(raw)
             events.append(AgentEvent(stage="parse", message="JSON локальной модели разобран.", status="success"))
         except Exception as exc:
-            return self._safe_failure(title, meeting_date, source, warnings, events, exc)
+            return self._safe_failure(title, meeting_date, source, warnings, events, exc, stage="local_model")
 
         try:
             speakers = self._speakers(payload.get("speakers", []), source, warnings)
-            actions = self._actions(payload.get("action_items", []), source, meeting_date, warnings)
+            confirmed_names = {
+                speaker.speaker_id: speaker.proposed_name
+                for speaker in speakers
+                if speaker.proposed_name and speaker.confidence >= 0.8
+            }
+            actions = self._actions(
+                payload.get("action_items", []), source, meeting_date, warnings, confirmed_names
+            )
             validated_count = len(actions)
             actions = self._remove_cancelled(actions, source, warnings)
             actions = self._dedupe(actions, warnings)
             summary = self._summary(actions)
         except Exception as exc:
-            return self._safe_failure(title, meeting_date, source, warnings, events, exc)
+            return self._safe_failure(title, meeting_date, source, warnings, events, exc, stage="validation")
 
         events.extend([
             AgentEvent(stage="speakers", message=f"Говорящих: {len(speakers)}.", status="success"),
@@ -177,10 +231,11 @@ class MeetingProtocolAgent:
         warnings: list[str],
         events: list[AgentEvent],
         exc: Exception,
+        stage: str,
     ) -> MeetingResult:
-        msg = f"Локальная модель недоступна или результат не прошёл проверку: {type(exc).__name__}: {exc}"
+        msg = f"Ошибка на этапе {stage}: {type(exc).__name__}: {exc}"
         warnings.append(msg)
-        events.append(AgentEvent(stage="local_model", message=msg, status="warning"))
+        events.append(AgentEvent(stage=stage, message=msg, status="warning"))
         return MeetingResult(
             title=title, meeting_date=meeting_date, transcript=transcript, action_items=[],
             warnings=warnings, events=events, summary="Подтверждённые поручения не извлечены.",
@@ -305,9 +360,17 @@ class MeetingProtocolAgent:
             result.setdefault(sid, SpeakerInfo(speaker_id=sid, proposed_name=None, confidence=0))
         return [result[sid] for sid in ids]
 
-    def _actions(self, raw: list[Any], transcript: list[TranscriptSegment], meeting_date: date | None, warnings: list[str]) -> list[ActionItem]:
+    def _actions(
+        self,
+        raw: list[Any],
+        transcript: list[TranscriptSegment],
+        meeting_date: date | None,
+        warnings: list[str],
+        confirmed_names: dict[str, str] | None = None,
+    ) -> list[ActionItem]:
         by_id = {s.id: s for s in transcript}
         positions = {s.id: i for i, s in enumerate(transcript)}
+        confirmed_names = confirmed_names or {}
         out: list[ActionItem] = []
         for n, item in enumerate(raw, 1):
             if not isinstance(item, dict):
@@ -325,9 +388,12 @@ class MeetingProtocolAgent:
 
             context = self._context(transcript, positions[evidence_id], radius=1)
             author_context = [segment for segment in context if segment.speaker_id == evidence.speaker_id]
-            context_text = " ".join(segment.text for segment in author_context)
-            review = bool(item.get("needs_review", False))
+            author_context_text = " ".join(segment.text for segment in author_context)
+            raw_review = item.get("needs_review", False)
+            review = raw_review if isinstance(raw_review, bool) else True
             notes: list[str] = []
+            if not isinstance(raw_review, bool):
+                notes.append("needs_review имеет неверный тип; результат требует проверки")
 
             author = self._string(item.get("author_speaker_id"))
             if author is None:
@@ -338,16 +404,44 @@ class MeetingProtocolAgent:
                 notes.append("author_speaker_id не совпадает со speaker_id evidence")
 
             assignee = self._string(item.get("assignee"))
-            if assignee and not self._name_in_text(assignee, context_text):
-                assignee = None
-                review = True
-                notes.append("исполнитель не подтверждён evidence или соседней репликой")
+            if assignee:
+                mentioned_in_evidence = self._name_in_text(assignee, evidence.text)
+                mentioned_in_author_context = self._name_in_text(assignee, author_context_text)
+                known_speaker_name = confirmed_names.get(evidence.speaker_id)
+                self_assignment = bool(
+                    known_speaker_name
+                    and self._compatible_assignees(assignee, known_speaker_name)
+                    and self._is_self_assignment(evidence.text)
+                )
+                if not (mentioned_in_author_context or self_assignment):
+                    assignee = None
+                    review = True
+                    notes.append("исполнитель не подтверждён evidence, контекстом автора или идентичностью говорящего")
+                elif not mentioned_in_evidence and not self_assignment:
+                    review = True
+                    notes.append("исполнитель подтверждён только соседней репликой автора")
 
             deadline_text = self._string(item.get("deadline_text"))
-            if deadline_text and not self._contains_phrase(deadline_text, context_text):
-                deadline_text = None
-                review = True
-                notes.append("текст срока не найден в evidence или соседней реплике")
+            if deadline_text:
+                in_evidence = self._contains_exact_phrase(deadline_text, evidence.text)
+                same_speaker_match = any(
+                    self._contains_exact_phrase(deadline_text, segment.text)
+                    for segment in author_context
+                )
+                any_neighbor_match = any(
+                    self._contains_exact_phrase(deadline_text, segment.text)
+                    for segment in context
+                )
+                if not any_neighbor_match:
+                    deadline_text = None
+                    review = True
+                    notes.append("исходный текст срока не найден в evidence или соседней реплике")
+                elif not in_evidence:
+                    review = True
+                    if same_speaker_match:
+                        notes.append("срок подтверждён только соседней репликой автора")
+                    else:
+                        notes.append("срок подтверждён соседней репликой другого говорящего")
             if deadline_text is None:
                 inferred_deadline = self._extract_deadline_text(evidence.text)
                 if inferred_deadline:
@@ -412,9 +506,9 @@ class MeetingProtocolAgent:
             day, month = int(numeric.group(1)), int(numeric.group(2))
             year_text = numeric.group(3)
             if year_text:
+                if len(year_text) == 2:
+                    return None, True
                 year = int(year_text)
-                if year < 100:
-                    year += 2000
                 candidate = self._safe_date(year, month, day)
                 return candidate, candidate is None
             candidate = self._safe_date(meeting_date.year, month, day)
@@ -462,7 +556,17 @@ class MeetingProtocolAgent:
             if match_index is None:
                 out.append(item)
             else:
-                out[match_index] = self._merge_duplicates(out[match_index], item)
+                merged = self._merge_duplicates(out[match_index], item)
+                out[match_index] = merged
+                if merged.warning:
+                    for marker in (
+                        "дубликаты содержат разные детали",
+                        "дубликаты по-разному уточняют исполнителя",
+                    ):
+                        if marker in merged.warning:
+                            message = f"{merged.task}: {marker}."
+                            if message not in warnings:
+                                warnings.append(message)
         return out
 
     def _merge_duplicates(self, first: ActionItem, second: ActionItem) -> ActionItem:
@@ -482,13 +586,21 @@ class MeetingProtocolAgent:
             (selected.assignee is None and other.assignee is not None)
             or (selected.deadline_text is None and other.deadline_text is not None)
         )
+        notes: list[str] = []
         if selected.evidence != other.evidence and lost_detail:
-            note = "дубликаты содержат разные детали; поля из разных evidence не объединялись"
-            return selected.model_copy(update={
-                "needs_review": True,
-                "warning": self._append_warning(selected.warning, note),
-            })
-        return selected
+            notes.append("дубликаты содержат разные детали; поля из разных evidence не объединялись")
+        if (
+            first.assignee
+            and second.assignee
+            and self._norm(first.assignee) != self._norm(second.assignee)
+        ):
+            notes.append("дубликаты по-разному уточняют исполнителя")
+        if not notes:
+            return selected
+        warning = selected.warning
+        for note in notes:
+            warning = self._append_warning(warning, note)
+        return selected.model_copy(update={"needs_review": True, "warning": warning})
 
     def _remove_cancelled(
         self,
@@ -505,8 +617,7 @@ class MeetingProtocolAgent:
             cancellation = next(
                 (
                     segment for segment in transcript[evidence_index + 1:]
-                    if self._is_explicit_cancellation(segment.text)
-                    and self._task_mentioned(item.task, segment.text)
+                    if self._cancels_task(item.task, segment.text)
                 ),
                 None,
             )
@@ -533,10 +644,18 @@ class MeetingProtocolAgent:
 
     @staticmethod
     def _is_explicit_cancellation(text: str) -> bool:
-        normalized = " ".join(WORDS.findall(text.casefold().replace("ё", "е")))
-        if re.search(r"\bне (?:надо|нужно) забыва", normalized):
-            return False
         return any(pattern.search(text) for pattern in CANCELLATION_PATTERNS)
+
+    def _cancels_task(self, task: str, text: str) -> bool:
+        if self._is_explicit_cancellation(text) and self._task_mentioned(task, text):
+            return True
+        for clause in re.split(r"[,;.!?]|\b(?:а|но|зато)\b", text, flags=re.I):
+            cleaned = POSITIVE_REMINDER_PATTERN.sub("", clause)
+            if not cleaned.strip():
+                continue
+            if any(pattern.search(cleaned) for pattern in NEGATED_ACTION_PATTERNS) and self._task_mentioned(task, cleaned):
+                return True
+        return False
 
     def _task_mentioned(self, task: str, text: str) -> bool:
         task_norm, text_norm = self._norm(task), self._norm(text)
@@ -559,6 +678,10 @@ class MeetingProtocolAgent:
         if self._is_negated_or_non_assignment(evidence):
             return False
         if self._is_completed_fact_for_task(task, evidence):
+            return False
+        task_actions = self._action_signatures(task_norm)
+        evidence_actions = self._action_signatures(evidence_norm)
+        if task_actions and not task_actions.issubset(evidence_actions):
             return False
         task_qualifiers = self._qualifiers(task_norm)
         evidence_qualifiers = self._qualifiers(evidence_norm)
@@ -621,6 +744,8 @@ class MeetingProtocolAgent:
 
     @staticmethod
     def _conf(value: Any, default: float) -> float:
+        if isinstance(value, bool):
+            return default
         try:
             parsed = float(value)
             if not math.isfinite(parsed):
@@ -641,10 +766,8 @@ class MeetingProtocolAgent:
 
     @staticmethod
     def _is_negated_or_non_assignment(text: str) -> bool:
-        normalized = " ".join(WORDS.findall(text.casefold().replace("ё", "е")))
-        if re.search(r"\bне (?:надо|нужно) забыва", normalized):
-            return any(pattern.search(text) for pattern in NON_ASSIGNMENT_PATTERNS)
-        return any(pattern.search(text) for pattern in (*NEGATED_ACTION_PATTERNS, *NON_ASSIGNMENT_PATTERNS))
+        cleaned = POSITIVE_REMINDER_PATTERN.sub("", text)
+        return any(pattern.search(cleaned) for pattern in (*NEGATED_ACTION_PATTERNS, *NON_ASSIGNMENT_PATTERNS))
 
     def _is_completed_fact_for_task(self, task: str, text: str) -> bool:
         task_roots = {self._root(token) for token in self._content_tokens(self._norm(task))}
@@ -671,30 +794,66 @@ class MeetingProtocolAgent:
         phrase_tokens, text_tokens = self._content_tokens(phrase_norm), self._content_tokens(text_norm)
         return bool(phrase_tokens) and all(any(self._token_match(p, t) for t in text_tokens) for p in phrase_tokens)
 
+    def _contains_exact_phrase(self, phrase: str, text: str) -> bool:
+        phrase_norm, text_norm = self._norm(phrase), self._norm(text)
+        return bool(phrase_norm) and phrase_norm in text_norm
+
+    def _action_signatures(self, text: str) -> set[str]:
+        signatures: set[str] = set()
+        for token in text.split():
+            for signature, prefixes in ACTION_STEM_GROUPS.items():
+                if any(token.startswith(prefix) for prefix in prefixes):
+                    signatures.add(signature)
+                    break
+        return signatures
+
     def _self_identifies(self, name: str, text: str) -> bool:
         first = self._norm(name).split()
         if not first:
             return False
         normalized = self._norm(text)
-        return any(pattern in normalized for pattern in (
-            f"меня зовут {first[0]}", f"я {first[0]}", f"это {first[0]}",
-        ))
+        token = re.escape(first[0])
+        return any(
+            re.search(pattern, normalized) is not None
+            for pattern in (
+                rf"\bменя зовут {token}\b",
+                rf"\bя {token}\b",
+                rf"\bэто {token}\b",
+            )
+        )
+
+    @staticmethod
+    def _is_self_assignment(text: str) -> bool:
+        return any(pattern.search(text) for pattern in SELF_ASSIGNMENT_PATTERNS)
 
     def _name_in_text(self, name: str, text: str) -> bool:
         name_tokens = [token for token in self._norm(name).split() if len(token) >= 3]
         text_tokens = self._norm(text).split()
-        if not name_tokens:
-            return False
-        if not any(self._token_match(name_tokens[0], token) for token in text_tokens):
+        if not name_tokens or not text_tokens:
             return False
         if len(name_tokens) == 1:
-            return True
-        return any(any(self._token_match(name_token, token) for token in text_tokens) for name_token in name_tokens[1:])
+            return any(self._token_match(name_tokens[0], token) for token in text_tokens)
+        for start, token in enumerate(text_tokens):
+            if not self._token_match(name_tokens[0], token):
+                continue
+            position = start + 1
+            matched = True
+            for name_token in name_tokens[1:]:
+                if position >= len(text_tokens) or not self._token_match(name_token, text_tokens[position]):
+                    matched = False
+                    break
+                position += 1
+            if matched:
+                return True
+        return False
 
     def _same_task(self, left: str, right: str) -> bool:
         left_norm, right_norm = self._norm(left), self._norm(right)
         if left_norm == right_norm:
             return True
+        left_actions, right_actions = self._action_signatures(left_norm), self._action_signatures(right_norm)
+        if left_actions != right_actions and (left_actions or right_actions):
+            return False
         left_qualifiers, right_qualifiers = self._qualifiers(left_norm), self._qualifiers(right_norm)
         if left_qualifiers != right_qualifiers and (left_qualifiers or right_qualifiers):
             return False
