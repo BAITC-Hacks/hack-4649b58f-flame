@@ -519,7 +519,7 @@ class MeetingProtocolAgent:
                     and self._compatible_assignees(assignee, known_speaker_name)
                     and self._is_self_assignment(task, evidence.text)
                 )
-                if assignee and not (mentioned_in_author_context or self_assignment):
+                if assignee and not (mentioned_in_evidence or mentioned_in_author_context or self_assignment):
                     assignee = None
                     review = True
                     notes.append("исполнитель не подтверждён evidence, контекстом автора или идентичностью говорящего")
