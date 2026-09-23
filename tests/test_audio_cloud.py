@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+from io import BytesIO
+from urllib.error import HTTPError
 
 import pytest
 
@@ -71,3 +73,20 @@ def test_cloud_audio_marks_missing_speaker_unknown():
             {"segments": [{"start": 0, "end": 1, "text": "Реплика", "speaker": None}]}
         )
     assert segments[0].speaker_id == "UNKNOWN"
+
+
+def test_cloud_audio_reports_quota_error_without_leaking_server_message(tmp_path, monkeypatch):
+    path = tmp_path / "meeting.mp3"
+    path.write_bytes(b"audio")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+    def fake_urlopen(request, timeout):
+        body = json.dumps(
+            {"error": {"type": "insufficient_quota", "message": "private server detail"}}
+        ).encode()
+        raise HTTPError(request.full_url, 429, "Too Many Requests", {}, BytesIO(body))
+
+    monkeypatch.setattr(audio_cloud, "urlopen", fake_urlopen)
+    with pytest.raises(RuntimeError, match=r"HTTP 429 \(insufficient_quota\)") as exc:
+        audio_cloud.process_audio_cloud(str(path), allow_upload=True)
+    assert "private server detail" not in str(exc.value)

@@ -40,7 +40,17 @@ def process_audio_cloud(
         with urlopen(request, timeout=timeout) as response:
             payload = json.load(response)
     except HTTPError as exc:
-        raise RuntimeError(f"OpenAI transcription returned HTTP {exc.code}") from exc
+        detail = ""
+        try:
+            error = json.loads(exc.read(8192)).get("error", {})
+            for field in ("code", "type"):
+                value = error.get(field)
+                if value in {"insufficient_quota", "rate_limit_exceeded"}:
+                    detail = f" ({value})"
+                    break
+        except (ValueError, AttributeError, OSError):
+            pass
+        raise RuntimeError(f"OpenAI transcription returned HTTP {exc.code}{detail}") from exc
     except URLError as exc:
         raise RuntimeError("OpenAI transcription request failed") from exc
 
