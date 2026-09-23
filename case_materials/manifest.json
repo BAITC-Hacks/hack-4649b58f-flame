@@ -1,0 +1,30 @@
+{
+  "case": {
+    "file": "source/HackAlem_AI_case.docx",
+    "sha256": "9c0ea905e8d9c870e2595d0592c8cae157a8fd58d537e74248c7403d48228c2e"
+  },
+  "meetings": [
+    {
+      "id": "meeting_1",
+      "audio_title": "Совещание №1",
+      "audio_url": "https://drive.google.com/file/d/1qfaLjTt7wasq6wX9mWNfIQKdyND6z-tC/view",
+      "audio_size_bytes": 4426407,
+      "audio_duration_seconds": 274.25,
+      "audio_sha256": "0f18f11a6f65f9a2bad6497f387b224c775885a03a811edf3fb15c5238db6f54",
+      "reference_protocol": "source/meeting_1_reference_protocol.docx",
+      "reference_protocol_sha256": "c2f5210106b96317730a06f71c29990f3876f70533b6c8671b30d04396a856e2",
+      "expected": "expected/meeting_1.json"
+    },
+    {
+      "id": "meeting_2",
+      "audio_title": "Совещание №2",
+      "audio_url": "https://drive.google.com/file/d/1EUb4ahU4mRcu5jQ6k46Fp_qGSuVf2yh2/view",
+      "audio_size_bytes": 3334695,
+      "audio_duration_seconds": 206.03125,
+      "audio_sha256": "b7a42833d0691b99af300a24c7dcdeaf05378355633fb867ef6bfc9e2a8f8f46",
+      "reference_protocol": "source/meeting_2_reference_protocol.docx",
+      "reference_protocol_sha256": "0bcee5d2fdbed172beaaa758627bb78dd0b523ab48789833e949e62da61dfdb5",
+      "expected": "expected/meeting_2.json"
+    }
+  ]
+}
