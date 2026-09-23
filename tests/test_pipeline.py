@@ -19,6 +19,7 @@ def test_audio_processor_uses_confirmed_team_import():
 
 def test_local_pipeline_uses_audio_segments_and_agent():
     expected = demo_meeting_result("x", None).transcript
+    stages = []
 
     result = run_local_pipeline(
         BytesIO(b"RIFF-test"),
@@ -27,10 +28,35 @@ def test_local_pipeline_uses_audio_segments_and_agent():
         "Реальное совещание",
         audio_processor=lambda _: expected,
         agent=FakeAgent(),
+        on_stage=stages.append,
     )
 
     assert result.title == "Реальное совещание"
     assert result.transcript == expected
+    assert stages == [
+        "1/3 Проверка и локальное сохранение файла",
+        "2/3 Распознавание речи и диаризация",
+        "3/3 Анализ транскрипта локальным агентом",
+    ]
+
+
+def test_local_pipeline_surfaces_diarization_fallback():
+    segments = [
+        segment.model_copy(update={"speaker_id": "UNKNOWN"})
+        for segment in demo_meeting_result("x", None).transcript
+    ]
+
+    result = run_local_pipeline(
+        BytesIO(b"RIFF-test"),
+        "meeting.wav",
+        None,
+        "Без диаризации",
+        audio_processor=lambda _: segments,
+        agent=FakeAgent(),
+    )
+
+    assert any("Диаризация недоступна" in warning for warning in result.warnings)
+    assert any(event.stage == "diarization" for event in result.events)
 
 
 def test_local_pipeline_reports_audio_stage():

@@ -21,6 +21,14 @@ def _format_time(seconds: float) -> str:
     return f"{hours:02d}:{minutes:02d}:{secs:02d}" if hours else f"{minutes:02d}:{secs:02d}"
 
 
+def _store_result(result: MeetingResult, source_label: str, kind: str) -> None:
+    for key in ("action_editor", "transcript_editor", "reviewed_result"):
+        st.session_state.pop(key, None)
+    st.session_state.result = result
+    st.session_state.result_source = source_label
+    st.session_state.result_kind = kind
+
+
 def _render_result(result: MeetingResult, source_label: str) -> None:
     st.caption(source_label)
     st.subheader("Саммари")
@@ -45,7 +53,7 @@ def _render_result(result: MeetingResult, source_label: str) -> None:
     edited_actions = st.data_editor(
         action_rows,
         key="action_editor",
-        width="stretch",
+        use_container_width=True,
         hide_index=True,
         disabled=["Суть", "Уверенность", "Статус проверки"],
         column_config={
@@ -68,7 +76,7 @@ def _render_result(result: MeetingResult, source_label: str) -> None:
     edited_transcript = st.data_editor(
         transcript_rows,
         key="transcript_editor",
-        width="stretch",
+        use_container_width=True,
         hide_index=True,
         disabled=["Таймкод", "Speaker ID", "Текст"],
         column_config={
@@ -119,19 +127,34 @@ if mode == "Демо интерфейса":
             st.write("Создание тестового результата")
             result = demo_meeting_result(title, meeting_date)
             st.write("Подготовка редактируемых таблиц и DOCX")
-            st.session_state.result = result
-            st.session_state.result_source = "Демо-данные — не результат обработки аудио"
+            _store_result(
+                result,
+                "Демо-данные — не результат обработки аудио",
+                "demo",
+            )
             status.update(label="Демо готово", state="complete", expanded=False)
 else:
     upload = st.file_uploader("Загрузите аудио", type=["mp3", "wav"])
     st.caption("Файл сохраняется только во временную локальную папку и удаляется после обработки.")
     if st.button("Обработать аудио", type="primary", disabled=upload is None):
+        for key in (
+            "result",
+            "result_source",
+            "result_kind",
+            "action_editor",
+            "transcript_editor",
+            "reviewed_result",
+        ):
+            st.session_state.pop(key, None)
         stage_status = st.status("Локальная обработка", expanded=True)
         try:
-            stage_status.write("1/3 Сохранение файла во временную локальную папку")
-            stage_status.write("2/3 Распознавание речи и диаризация")
-            stage_status.write("3/3 Анализ транскрипта локальным агентом")
-            result = run_local_pipeline(upload, upload.name, meeting_date, title)
+            result = run_local_pipeline(
+                upload,
+                upload.name,
+                meeting_date,
+                title,
+                on_stage=stage_status.write,
+            )
         except PipelineStageError as exc:
             stage_status.update(label=f"Ошибка: {exc.stage}", state="error", expanded=True)
             st.error(f"{exc.stage}: {exc.detail}")
@@ -139,10 +162,14 @@ else:
             stage_status.update(label="Непредвиденная ошибка", state="error", expanded=True)
             st.error(f"Обработка: {exc}")
         else:
-            st.session_state.result = result
-            st.session_state.result_source = f"Локально обработан файл: {upload.name}"
-            stage_status.update(label="Обработка завершена", state="complete", expanded=False)
+            _store_result(result, f"Локально обработан файл: {upload.name}", "local")
+            label = (
+                "Обработка завершена с предупреждениями"
+                if result.warnings
+                else "Обработка завершена"
+            )
+            stage_status.update(label=label, state="complete", expanded=False)
 
-if "result" in st.session_state:
+expected_kind = "demo" if mode == "Демо интерфейса" else "local"
+if st.session_state.get("result_kind") == expected_kind:
     _render_result(st.session_state.result, st.session_state.result_source)
-

@@ -244,10 +244,9 @@ pytest -q
 UI запускается локально в явном demo-режиме или в режиме обработки MP3/WAV:
 
 ```powershell
-py -3.11 -m venv .venv
-.venv\Scripts\Activate.ps1
-pip install -r requirements-ui.txt
-streamlit run streamlit_app.py
+uv venv --python 3.11 .venv
+uv pip install --python .venv\Scripts\python.exe -r requirements-ui.txt
+.venv\Scripts\python.exe -m streamlit run streamlit_app.py
 ```
 
 В demo-режиме приложение использует синтетический `MeetingResult` и явно помечает его как тестовый.

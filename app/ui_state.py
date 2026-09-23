@@ -16,15 +16,13 @@ def apply_review_edits(
     for original, row in zip(result.action_items, action_rows):
         assignee = str(row.get("Исполнитель") or "").strip() or None
         deadline = str(row.get("Срок") or "").strip() or None
-        action_items.append(
-            original.model_copy(
-                update={
-                    "assignee": assignee,
-                    "deadline_text": deadline,
-                    "deadline_iso": None,
-                }
-            )
+        original_deadline = original.deadline_text or (
+            original.deadline_iso.isoformat() if original.deadline_iso else None
         )
+        updates: dict[str, object] = {"assignee": assignee}
+        if deadline != original_deadline:
+            updates.update(deadline_text=deadline, deadline_iso=None)
+        action_items.append(original.model_copy(update=updates))
     action_items.extend(result.action_items[len(action_items) :])
 
     transcript: list[TranscriptSegment] = []
