@@ -1,1 +1,0 @@
-Second temporary file for validating HTTPS push through the Windows Schannel backend.
