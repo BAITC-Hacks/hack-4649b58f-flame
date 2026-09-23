@@ -1044,3 +1044,11 @@ def test_kazakh_self_assignment_uses_confirmed_speaker_name():
     result = FakeAgent(payload).run(transcript, date(2026, 9, 21), "Kazakh")
     assert result.action_items[0].assignee == "Ерлан"
     assert result.action_items[0].deadline_iso == date(2026, 9, 25)
+
+
+def test_bare_kazakh_weekday_or_duration_is_not_forced_into_deadline():
+    agent = FakeAgent({})
+    assert agent._extract_deadline_text("Жұма туралы бөлек сөйлестік.") is None
+    actual, ambiguous = agent._deadline("екі апта", date(2026, 9, 21))
+    assert actual is None
+    assert ambiguous is True
