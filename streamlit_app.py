@@ -444,9 +444,9 @@ def _render_result(result: MeetingResult, source_label: str) -> None:
 
     review_count = sum(item.needs_review for item in result.action_items)
     named_speakers = {
-        segment.speaker_name or segment.speaker_id
+        segment.speaker_id
         for segment in result.transcript
-        if segment.speaker_name or segment.speaker_id != "UNKNOWN"
+        if segment.speaker_id != "UNKNOWN"
     }
     metric_columns = st.columns(4)
     metric_columns[0].metric("Поручения", len(result.action_items))
@@ -455,7 +455,8 @@ def _render_result(result: MeetingResult, source_label: str) -> None:
     metric_columns[3].metric("Говорящие", len(named_speakers))
 
     overview_tab, actions_tab, transcript_tab, events_tab = st.tabs(
-        ["Обзор", "Поручения", "Транскрипт", "Журнал агента"]
+        ["Обзор", "Поручения", "Транскрипт", "Журнал агента"],
+        key="result_tabs", on_change="rerun",
     )
 
     with overview_tab:
@@ -474,7 +475,8 @@ def _render_result(result: MeetingResult, source_label: str) -> None:
             "Исполнитель": item.assignee or "",
             "Срок": item.deadline_text or (item.deadline_iso.isoformat() if item.deadline_iso else ""),
             "Уверенность": round(item.confidence * 100),
-            "Статус проверки": "Требует проверки" if item.needs_review else "Проверено",
+            "Статус проверки": "Требует проверки" if item.needs_review else "Без замечаний модели",
+            "Подтверждение": item.evidence,
         }
         for item in result.action_items
     ]
@@ -486,10 +488,10 @@ def _render_result(result: MeetingResult, source_label: str) -> None:
                 key="action_editor",
                 width="stretch",
                 hide_index=True,
-                disabled=["Суть", "Уверенность", "Статус проверки"],
+                disabled=["Суть", "Уверенность", "Статус проверки", "Подтверждение"],
                 column_config={
                     "Исполнитель": st.column_config.TextColumn(
-                        help="Можно исправить перед экспортом"
+                        help="Можно исправить перед экспортом", width="medium",
                     ),
                     "Срок": st.column_config.TextColumn(
                         help="Можно исправить перед экспортом"
@@ -501,6 +503,13 @@ def _render_result(result: MeetingResult, source_label: str) -> None:
                     ),
                 },
             )
+            with st.expander("Полные тексты поручений и подтверждения"):
+                for index, item in enumerate(result.action_items, 1):
+                    st.markdown(f"**{index}. {item.task}**")
+                    st.write("Исполнитель:", edited_actions[index - 1].get("Исполнитель") or "не указан")
+                    st.write("Срок:", edited_actions[index - 1].get("Срок") or "не указан")
+                    st.caption("Исходная реплика")
+                    st.write(item.evidence)
         else:
             st.info("Агент не выделил подтверждённых поручений.")
             edited_actions = []

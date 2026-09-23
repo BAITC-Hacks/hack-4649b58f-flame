@@ -20,6 +20,7 @@ def _fake_stt_result():
 
 
 def test_process_audio_keeps_transcript_when_diarization_fails(tmp_path, monkeypatch):
+    monkeypatch.setenv("AUDIO_STT_BACKEND", "mlx")
     audio_path = tmp_path / "meeting.mp3"
     audio_path.write_bytes(b"not decoded by the fake backend")
     fake_mlx = types.SimpleNamespace(transcribe=lambda *_args, **_kwargs: _fake_stt_result())
@@ -35,6 +36,7 @@ def test_process_audio_keeps_transcript_when_diarization_fails(tmp_path, monkeyp
 
 
 def test_process_audio_assigns_largest_overlap(tmp_path, monkeypatch):
+    monkeypatch.setenv("AUDIO_STT_BACKEND", "mlx")
     audio_path = tmp_path / "meeting.wav"
     audio_path.write_bytes(b"fake")
     fake_mlx = types.SimpleNamespace(transcribe=lambda *_args, **_kwargs: _fake_stt_result())
@@ -59,3 +61,39 @@ def test_process_audio_rejects_unsupported_format(tmp_path):
     audio_path.write_bytes(b"fake")
     with pytest.raises(ValueError, match="Unsupported audio format"):
         audio.process_audio(str(audio_path))
+
+
+def test_windows_backend_consumes_lazy_segments(tmp_path, monkeypatch):
+    calls = {}
+
+    class Model:
+        def __init__(self, name, **kwargs):
+            calls.update(model=name, **kwargs)
+
+        def transcribe(self, path, **kwargs):
+            calls.update(kwargs)
+            return iter([types.SimpleNamespace(start=0.5, end=2.0, text=" Проверить договор. ")]), types.SimpleNamespace(language="ru", language_probability=0.99)
+
+    monkeypatch.setitem(sys.modules, "faster_whisper", types.SimpleNamespace(WhisperModel=Model))
+    monkeypatch.setattr(audio.platform, "system", lambda: "Windows")
+    monkeypatch.setenv("AUDIO_STT_BACKEND", "auto")
+    for name in ("AUDIO_STT_MODEL", "AUDIO_STT_DEVICE", "AUDIO_STT_COMPUTE_TYPE", "AUDIO_LANGUAGE"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(audio, "_diarize", lambda _: [])
+    path = tmp_path / "test.wav"
+    path.write_bytes(b"synthetic backend input")
+    with pytest.warns(RuntimeWarning):
+        result = audio.process_audio(str(path))
+    assert result[0].text == "Проверить договор."
+    assert result[0].start == 0.5
+    assert result[0].speaker_id == "UNKNOWN"
+    assert calls["device"] == "cpu"
+    assert calls["compute_type"] == "int8"
+    assert calls["model"] == "small"
+    assert calls["language"] is None
+
+
+def test_unknown_backend_rejected(tmp_path, monkeypatch):
+    monkeypatch.setenv("AUDIO_STT_BACKEND", "invalid")
+    with pytest.raises(ValueError, match="AUDIO_STT_BACKEND"):
+        audio._transcribe(tmp_path / "test.wav")

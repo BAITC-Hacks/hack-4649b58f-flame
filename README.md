@@ -36,7 +36,7 @@
 
 | Компонент | Фактический статус |
 | --- | --- |
-| MP3/WAV → текст с таймкодами | Локально работает на Apple Silicon. Для «Совещание №1.mp3» получено 81 сегмент; повторный запуск с моделью в кэше занял около 17 секунд. |
+| MP3/WAV → текст с таймкодами | Apple Silicon: MLX Whisper. Windows/Linux: faster-whisper. На Windows «Совещание №2.mp3» распознано моделью small на CPU/int8: 44 сегмента за 44,54 с (без времени загрузки модели). |
 | Speaker diarization | Есть локальный адаптер и безопасный fallback. В проверенном прогоне модель была недоступна, поэтому все сегменты получили `speaker_id="UNKNOWN"`; имена говорящих не угадываются. |
 | Meeting Protocol Agent | Локальная реализация Ollama, evidence-проверка, нормализация сроков, отмены и дедупликация добавлены вместе с материалами кейса. Качество зависит от модели и требует ручной проверки. |
 | Материалы кейса | В `case_materials/` добавлены описание кейса, эталонные протоколы, манифест и ожидаемые поручения. MP3 и полные транскрипты не коммитятся. |
@@ -77,7 +77,7 @@ HTTP 429, поэтому успешный облачный результат н
 Audio MP3/WAV
       |
       v
-Local Audio / STT (MLX Whisper)
+Local Audio / STT (faster-whisper on Windows/Linux, MLX on Apple Silicon)
   - preprocessing
   - multilingual transcription
   - timestamps
@@ -167,11 +167,13 @@ pip install -r requirements.txt
 pip install -r requirements-audio.txt
 ```
 
-Первый запуск загрузит multilingual MLX Whisper в локальный кэш. Модель можно
+Первый запуск загрузит multilingual Whisper в локальный кэш: `small` для
+Windows/Linux, MLX small для Apple Silicon. Модель можно
 заменить через `AUDIO_STT_MODEL`. Без заранее известного языка не задавайте
 `AUDIO_LANGUAGE`: Whisper сам определит режим multilingual-распознавания.
 
-Для локальной диаризации нужна модель
+Для локальной диаризации установите `pip install -r requirements-diarization.txt`.
+Нужна модель
 `pyannote/speaker-diarization-community-1`. Её условия принимаются в Hugging
 Face один раз; токен задаётся только через окружение `HF_TOKEN` или локальный
 путь `AUDIO_DIARIZATION_MODEL`. Если модель недоступна, срабатывает fallback
@@ -183,17 +185,55 @@ Face один раз; токен задаётся только через окр
 
 ```powershell
 python -m venv .venv
-.venv\Scripts\python.exe -m pip install -r requirements-ui.txt
+.venv\Scripts\python.exe -m pip install -r requirements-ui.txt -r requirements-audio.txt
 .venv\Scripts\python.exe -m streamlit run streamlit_app.py
 ```
+
+Для анализа транскрипта установите Ollama с официального сайта и в отдельном
+терминале запустите:
+
+```powershell
+ollama pull qwen2.5:3b-instruct-q4_K_M
+ollama serve
+```
+
+Если Ollama уже запущена приложением, второй `serve` не нужен. Рекомендуемые
+параметры для 16 GB RAM / RTX 3050 6 GB (задайте в терминале запуска UI):
+
+```powershell
+$env:AUDIO_STT_BACKEND = "auto"
+$env:AUDIO_STT_DEVICE = "cpu"
+$env:AUDIO_STT_COMPUTE_TYPE = "int8"
+$env:OLLAMA_NUM_CTX = "8192"
+$env:OLLAMA_TIMEOUT_SECONDS = "180"
+.venv\Scripts\python.exe -m streamlit run streamlit_app.py
+```
+
+После установки зависимостей можно запускать всё одной командой:
+
+```powershell
+.\scripts\start_windows.ps1
+# Для portable Ollama:
+.\scripts\start_windows.ps1 -OllamaPath "C:\path\to\ollama.exe"
+```
+
+Скрипт проверяет локальную Ollama, при необходимости запускает её в фоне,
+скачивает выбранную модель и открывает Streamlit. Служебная папка `.ollama`
+создаётся Ollama в профиле пользователя; если доступ запрещён, запуск нужно
+выполнить из обычного пользовательского терминала. Никакие секреты скрипт не
+записывает в репозиторий.
 
 Demo-режим использует явно помеченные синтетические данные. В локальном режиме
 UI вызывает `app.services.audio.process_audio`, затем `MeetingProtocolAgent.run`.
 Перед экспортом DOCX можно исправить имена говорящих, исполнителей и сроки.
 
-Текущий STT-backend — MLX Whisper для Apple Silicon. Он не работает на Windows;
-запуск интерфейса и demo-режима не доказывает работоспособность MP3 → DOCX на Windows.
-Ошибка распознавания показывается отдельно, без подмены результата demo-данными.
+На Windows выбран CPU/int8, чтобы не требовать ручной установки CUDA/cuDNN;
+NVIDIA остаётся доступна Ollama. При установленных CUDA-библиотеках можно явно
+выбрать `AUDIO_STT_DEVICE=cuda` и `AUDIO_STT_COMPUTE_TYPE=float16`.
+Запуск demo не является проверкой настоящих моделей. При недоступной диаризации
+сохраняется текст с `UNKNOWN`; при недоступной Ollama — транскрипт и предупреждение.
+`.env.example` — образец: параметры задаются через окружение, `.env` автоматически
+не загружается. Исходное аудио не отправляется во внешние AI API.
 
 ## Smoke test аудио
 

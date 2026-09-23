@@ -1,4 +1,4 @@
 pydantic>=2.6,<3
 python-docx>=1.1,<2
-streamlit>=1.35,<2
+streamlit>=1.64,<2
 pytest>=8,<10

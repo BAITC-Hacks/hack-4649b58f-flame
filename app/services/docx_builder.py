@@ -146,7 +146,7 @@ def _add_action_items(document: Document, result: MeetingResult) -> None:
     _repeat_header(table.rows[0])
 
     for row_index, item in enumerate(result.action_items):
-        status = "Требует проверки" if item.needs_review else "Проверено"
+        status = "Требует проверки" if item.needs_review else "Без замечаний модели"
         values = (
             item.task,
             item.assignee or "Не указан",

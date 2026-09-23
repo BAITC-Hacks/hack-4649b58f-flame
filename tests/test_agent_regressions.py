@@ -10,6 +10,15 @@ from app.config import local_model_url
 from app.models.schemas import TranscriptSegment
 
 
+def test_agent_honors_runtime_settings(monkeypatch):
+    monkeypatch.setenv("OLLAMA_TIMEOUT_SECONDS", "240")
+    monkeypatch.setenv("OLLAMA_NUM_CTX", "8192")
+    agent = MeetingProtocolAgent()
+    assert agent.timeout == 240
+    assert agent.num_ctx == 8192
+    assert MeetingProtocolAgent(timeout=7).timeout == 7
+
+
 @pytest.mark.parametrize("invalid_id", [[], {}, True, 1.0])
 def test_malformed_candidate_does_not_discard_valid_actions(invalid_id):
     source = [TranscriptSegment(id=1, start=0, end=2, speaker_id="S1",

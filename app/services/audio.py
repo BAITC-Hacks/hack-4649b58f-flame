@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import platform
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
@@ -28,7 +29,7 @@ class _SpeakerTurn:
 def process_audio(audio_path: str) -> list[TranscriptSegment]:
     """Transcribe MP3/WAV locally and attach speaker labels when available.
 
-    MLX Whisper performs multilingual transcription on Apple Silicon.  The
+    Faster Whisper runs on Windows/Linux; MLX is used on Apple Silicon. The
     optional pyannote pipeline is also executed locally.  If diarization cannot
     run, the transcript is still returned with ``speaker_id="UNKNOWN"`` and a
     warning containing the reason.
@@ -62,6 +63,39 @@ def _validated_audio_path(audio_path: str) -> Path:
 
 
 def _transcribe(path: Path) -> dict[str, Any]:
+    backend = os.getenv("AUDIO_STT_BACKEND", "auto").lower()
+    if backend == "auto":
+        backend = "mlx" if platform.system() == "Darwin" and platform.machine() == "arm64" else "faster-whisper"
+    if backend == "faster-whisper":
+        return _transcribe_faster_whisper(path)
+    if backend != "mlx":
+        raise ValueError("AUDIO_STT_BACKEND must be auto, mlx or faster-whisper")
+    return _transcribe_mlx(path)
+
+
+def _transcribe_faster_whisper(path: Path) -> dict[str, Any]:
+    try:
+        from faster_whisper import WhisperModel
+    except ImportError as exc:
+        raise RuntimeError("Установите локальный STT: python -m pip install -r requirements-audio.txt") from exc
+    model_name = os.getenv("AUDIO_STT_MODEL") or "small"
+    if model_name.startswith("mlx-community/"):
+        raise ValueError("MLX-модель несовместима с Windows/Linux. Укажите AUDIO_STT_MODEL=small.")
+    device = os.getenv("AUDIO_STT_DEVICE", "cpu")
+    compute_type = os.getenv("AUDIO_STT_COMPUTE_TYPE") or ("int8" if device == "cpu" else "float16")
+    model = WhisperModel(model_name, device=device, compute_type=compute_type)
+    segments, info = model.transcribe(
+        str(path), language=os.getenv("AUDIO_LANGUAGE") or None,
+        beam_size=5, vad_filter=True, condition_on_previous_text=False,
+    )
+    return {
+        "language": info.language,
+        "language_probability": info.language_probability,
+        "segments": [{"start": s.start, "end": s.end, "text": s.text} for s in segments],
+    }
+
+
+def _transcribe_mlx(path: Path) -> dict[str, Any]:
     try:
         import mlx_whisper
     except ModuleNotFoundError as exc:
@@ -73,7 +107,7 @@ def _transcribe(path: Path) -> dict[str, Any]:
     except ImportError as exc:
         raise RuntimeError(f"mlx-whisper could not be initialized: {exc}") from exc
 
-    model = os.getenv("AUDIO_STT_MODEL", DEFAULT_STT_MODEL)
+    model = os.getenv("AUDIO_STT_MODEL") or DEFAULT_STT_MODEL
     language = os.getenv("AUDIO_LANGUAGE") or None
     LOGGER.info("Transcribing %s locally with %s", path, model)
     result = mlx_whisper.transcribe(
@@ -130,7 +164,7 @@ def _diarize(path: Path) -> list[_SpeakerTurn]:
         if exc.name not in {"torch", "pyannote", "pyannote.audio"}:
             raise RuntimeError(f"pyannote.audio could not load a dependency: {exc}") from exc
         raise RuntimeError(
-            "pyannote.audio is not installed; install requirements-audio.txt"
+            "pyannote.audio is not installed; install requirements-diarization.txt"
         ) from exc
     except ImportError as exc:
         raise RuntimeError(f"pyannote.audio could not be initialized: {exc}") from exc

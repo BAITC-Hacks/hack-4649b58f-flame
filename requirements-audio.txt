@@ -1,8 +1,9 @@
 -r requirements.txt
 
 # Apple Silicon-native multilingual Whisper inference.
-mlx-whisper>=0.4,<1
+mlx-whisper>=0.4,<1; sys_platform == "darwin" and platform_machine == "arm64"
+faster-whisper>=1.1,<2; sys_platform != "darwin" or platform_machine != "arm64"
 
 # Optional local speaker diarization. The transcript falls back to UNKNOWN if
 # this dependency or its locally cached/configured model is unavailable.
-pyannote.audio>=4,<5
+# Install requirements-diarization.txt separately if speaker separation is needed.
