@@ -793,7 +793,11 @@ class MeetingProtocolAgent:
         normalized_text = re.sub(r",?\s*пожалуйста\s*,?", " ", text, flags=re.I)
         return [
             clause.strip()
-            for clause in re.split(r"[,;.!?]|\b(?:а|но|зато)\b", normalized_text, flags=re.I)
+            for clause in re.split(
+                r"[,;.!?]|\b(?:а|но|зато|бірақ|алайда|ал)\b",
+                normalized_text,
+                flags=re.I,
+            )
             if clause.strip()
         ]
 
@@ -1035,7 +1039,11 @@ class MeetingProtocolAgent:
 
         clauses = [
             clause.strip()
-            for clause in re.split(r"[,;.!?]|\b(?:а|но|зато|и)\b", text, flags=re.I)
+            for clause in re.split(
+                r"[,;.!?]|\b(?:а|но|зато|и|бірақ|алайда|ал|және)\b",
+                text,
+                flags=re.I,
+            )
             if clause.strip()
         ]
         for clause in clauses:
@@ -1043,7 +1051,7 @@ class MeetingProtocolAgent:
                 continue
             if not self._task_mentioned(task, clause):
                 continue
-            if ASSIGNMENT_CUE_PATTERN.search(clause) or self._is_self_assignment(task, clause):
+            if self._has_assignment_signal(task, clause):
                 return False
         return True
 
@@ -1107,41 +1115,35 @@ class MeetingProtocolAgent:
                     return True
         return False
 
-    def _name_is_negated_or_alternative(self, name: str, text: str) -> bool:
-        normalized_name = self._norm(name)
-        normalized_text = self._norm(text)
-        if not normalized_name or not normalized_text:
-            return False
-        name_pattern = r"\s+".join(re.escape(token) for token in normalized_name.split())
-        return any(
-            re.search(pattern, normalized_text) is not None
-            for pattern in (
-                rf"\bне\s+{name_pattern}\b",
-                rf"\b{ name_pattern }\s+(?:или|либо)\b",
-                rf"\b(?:или|либо)\s+{name_pattern}\b",
-            )
-        )
-
-    def _name_in_text(self, name: str, text: str) -> bool:
+    def _name_match_spans(self, name: str, text: str) -> list[tuple[int, int]]:
         name_tokens = [token for token in self._norm(name).split() if len(token) >= 3]
         text_tokens = self._norm(text).split()
         if not name_tokens or not text_tokens:
-            return False
-        if len(name_tokens) == 1:
-            return any(self._token_match(name_tokens[0], token) for token in text_tokens)
-        for start, token in enumerate(text_tokens):
-            if not self._token_match(name_tokens[0], token):
-                continue
-            position = start + 1
-            matched = True
-            for name_token in name_tokens[1:]:
-                if position >= len(text_tokens) or not self._token_match(name_token, text_tokens[position]):
-                    matched = False
-                    break
-                position += 1
-            if matched:
+            return []
+        spans: list[tuple[int, int]] = []
+        for start in range(len(text_tokens)):
+            end = start + len(name_tokens)
+            if end > len(text_tokens):
+                break
+            if all(
+                self._token_match(name_token, text_tokens[start + offset])
+                for offset, name_token in enumerate(name_tokens)
+            ):
+                spans.append((start, end))
+        return spans
+
+    def _name_is_negated_or_alternative(self, name: str, text: str) -> bool:
+        tokens = self._norm(text).split()
+        alternatives = {"или", "либо", "немесе"}
+        for start, end in self._name_match_spans(name, text):
+            before = tokens[start - 1] if start > 0 else None
+            after = tokens[end] if end < len(tokens) else None
+            if before in {"не", *alternatives} or after in {*alternatives, "емес"}:
                 return True
         return False
+
+    def _name_in_text(self, name: str, text: str) -> bool:
+        return bool(self._name_match_spans(name, text))
 
     def _same_task(self, left: str, right: str) -> bool:
         left_norm, right_norm = self._norm(left), self._norm(right)
