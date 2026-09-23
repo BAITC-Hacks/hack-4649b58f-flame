@@ -97,6 +97,10 @@ NEGATED_ACTION_PATTERNS = [
 NON_ASSIGNMENT_PATTERNS = [
     re.compile(r"\bкто\s+(?:может|сможет|готов)\b", re.I),
     re.compile(r"\b(?:нужно|надо|стоит|можно)\s+ли\b", re.I),
+    re.compile(r"\b(?:должен|должна|должны)\s+был(?:а|и)?\b", re.I),
+    re.compile(r"\b(?:нужно|надо|необходимо)\s+было\b", re.I),
+    re.compile(r"\b(?:обсуждали|рассматривали|планировали|хотели|собирались)\b", re.I),
+    re.compile(r"\b(?:есть\s+)?возможност[ьи]\b", re.I),
 ]
 COMPLETED_FACT_PATTERN = re.compile(
     r"\b(?:сделал(?:а|и)?|подготовил(?:а|и)?|отправил(?:а|и)?|проверил(?:а|и)?|"
@@ -129,6 +133,12 @@ ASSIGNMENT_CUE_PATTERN = re.compile(
     r"проверь|проверьте|собери|соберите|предоставь|предоставьте|разработай|"
     r"разработайте|уточни|уточните|организуй|организуйте|сформируй|сформируйте|"
     r"согласуй|согласуйте|рассчитай|рассчитайте|оплати|оплатите|свяжись|свяжитесь)\b",
+    re.I,
+)
+THIRD_PERSON_ACTION_PATTERN = re.compile(
+    r"\b(?:сделает|подготовит|отправит|найд[её]т|проверит|собер[её]т|предоставит|"
+    r"разработает|уточнит|организует|сформирует|согласует|утвердит|рассчитает|"
+    r"посчитает|оплатит|подпишет|направит|закажет|доставит|создаст|обновит|исправит)\b",
     re.I,
 )
 DEADLINE_PATTERNS = [
@@ -738,6 +748,8 @@ class MeetingProtocolAgent:
             return False
         if self._is_completed_fact_for_task(task, evidence):
             return False
+        if not self._has_assignment_signal(task, evidence):
+            return False
         task_actions = self._action_signatures(task_norm)
         evidence_actions = self._action_signatures(evidence_norm)
         if task_actions and not task_actions.issubset(evidence_actions):
@@ -852,6 +864,26 @@ class MeetingProtocolAgent:
                 continue
             return False
         return bad_match
+
+    def _has_assignment_signal(self, task: str, text: str) -> bool:
+        task_actions = self._action_signatures(self._norm(task))
+        for clause in self._clauses(text):
+            cleaned = POSITIVE_REMINDER_PATTERN.sub("", clause).strip()
+            if not cleaned or not self._task_mentioned(task, cleaned):
+                continue
+            if ASSIGNMENT_CUE_PATTERN.search(cleaned) or self._is_self_assignment(task, cleaned):
+                return True
+            for match in THIRD_PERSON_ACTION_PATTERN.finditer(cleaned):
+                if not task_actions or task_actions & self._action_signatures(self._norm(match.group(0))):
+                    return True
+            tokens = self._norm(cleaned).split()
+            for token in tokens[:3]:
+                if not re.search(r"(?:ть|ти|чь|ться)$", token):
+                    continue
+                token_actions = self._action_signatures(token)
+                if not task_actions or task_actions & token_actions:
+                    return True
+        return False
 
     def _is_completed_fact_for_task(self, task: str, text: str) -> bool:
         task_norm = self._norm(task)
