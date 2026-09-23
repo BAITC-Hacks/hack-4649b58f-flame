@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 import os
+import platform
+import sys
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,6 +16,7 @@ from app.models.schemas import TranscriptSegment
 LOGGER = logging.getLogger(__name__)
 
 DEFAULT_STT_MODEL = "mlx-community/whisper-small-mlx-q4"
+DEFAULT_FASTER_WHISPER_MODEL = "small"
 DEFAULT_DIARIZATION_MODEL = "pyannote/speaker-diarization-community-1"
 SUPPORTED_AUDIO_SUFFIXES = {".mp3", ".wav"}
 
@@ -62,6 +65,17 @@ def _validated_audio_path(audio_path: str) -> Path:
 
 
 def _transcribe(path: Path) -> dict[str, Any]:
+    backend = os.getenv("AUDIO_STT_BACKEND", "auto").strip().lower()
+    if backend == "auto":
+        backend = "mlx" if sys.platform == "darwin" and platform.machine().lower() in {"arm64", "aarch64"} else "faster-whisper"
+    if backend == "faster-whisper":
+        return _transcribe_faster_whisper(path)
+    if backend != "mlx":
+        raise ValueError("AUDIO_STT_BACKEND must be auto, mlx, or faster-whisper")
+    return _transcribe_mlx(path)
+
+
+def _transcribe_mlx(path: Path) -> dict[str, Any]:
     try:
         import mlx_whisper
     except ModuleNotFoundError as exc:
@@ -86,6 +100,37 @@ def _transcribe(path: Path) -> dict[str, Any]:
     if not isinstance(result, dict):
         raise RuntimeError("mlx-whisper returned an unexpected result")
     return result
+
+
+def _transcribe_faster_whisper(path: Path) -> dict[str, Any]:
+    try:
+        from faster_whisper import WhisperModel
+    except ImportError as exc:
+        raise RuntimeError(
+            "faster-whisper is not installed; run `pip install -r requirements-brev.txt`"
+        ) from exc
+
+    model_name = os.getenv("AUDIO_STT_MODEL", DEFAULT_FASTER_WHISPER_MODEL)
+    device = os.getenv("AUDIO_STT_DEVICE", "auto")
+    compute_type = os.getenv("AUDIO_STT_COMPUTE_TYPE", "auto")
+    language = os.getenv("AUDIO_LANGUAGE") or None
+    LOGGER.info("Transcribing %s locally with faster-whisper %s on %s", path, model_name, device)
+    model = WhisperModel(model_name, device=device, compute_type=compute_type)
+    raw_segments, info = model.transcribe(
+        str(path),
+        language=language,
+        word_timestamps=True,
+        condition_on_previous_text=False,
+    )
+    segments = [
+        {"start": segment.start, "end": segment.end, "text": segment.text}
+        for segment in raw_segments
+    ]
+    return {
+        "language": getattr(info, "language", None),
+        "language_probability": getattr(info, "language_probability", None),
+        "segments": segments,
+    }
 
 
 def _segments_from_transcription(result: dict[str, Any]) -> list[TranscriptSegment]:

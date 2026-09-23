@@ -1,0 +1,8 @@
+-r requirements.txt
+-r requirements-agent.txt
+
+# Local multilingual speech recognition on NVIDIA/Linux. No audio is sent to an API.
+faster-whisper>=1.1,<2
+
+# Optional diarization; missing or gated model yields UNKNOWN speaker IDs.
+pyannote.audio>=4,<5

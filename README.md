@@ -156,6 +156,10 @@ build_docx(result: MeetingResult) -> bytes
 
 ## Установка
 
+Для размещения на NVIDIA Linux с GPU и сохранением протоколов в SQLite см.
+[инструкцию Brev](docs/brev.md). Это отдельный способ запуска; текущий
+Apple Silicon путь ниже остаётся прежним.
+
 Нужен Python 3.11 (допускается 3.12).
 
 ```bash

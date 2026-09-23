@@ -8,6 +8,7 @@ import streamlit as st
 from app.demo import demo_meeting_result
 from app.models.schemas import MeetingResult
 from app.services.docx_builder import build_docx
+from app.services.meeting_store import list_meetings, load_meeting, save_meeting
 from app.services.pipeline import PipelineStageError, run_local_pipeline
 from app.ui_state import apply_review_edits
 
@@ -430,12 +431,21 @@ def _safe_filename(title: str) -> str:
     return f"{(cleaned or 'meeting_protocol')[:80]}.docx"
 
 
-def _store_result(result: MeetingResult, source_label: str, kind: str) -> None:
+def _store_result(
+    result: MeetingResult,
+    source_label: str,
+    kind: str,
+    *,
+    meeting_id: str | None = None,
+    origin_kind: str | None = None,
+) -> None:
     for key in ("action_editor", "transcript_editor", "reviewed_result"):
         st.session_state.pop(key, None)
     st.session_state.result = result
     st.session_state.result_source = source_label
     st.session_state.result_kind = kind
+    st.session_state.result_id = meeting_id
+    st.session_state.result_origin_kind = origin_kind or kind
 
 
 def _render_result(result: MeetingResult, source_label: str) -> None:
@@ -565,6 +575,19 @@ def _render_result(result: MeetingResult, source_label: str) -> None:
                 type="primary",
                 width="stretch",
             )
+    if st.button("Сохранить протокол в базу", key="save_meeting"):
+        try:
+            identifier = save_meeting(
+                reviewed,
+                source_label,
+                st.session_state.result_origin_kind,
+                st.session_state.get("result_id"),
+            )
+        except Exception as exc:
+            st.error(f"Не удалось сохранить протокол: {exc}")
+        else:
+            st.session_state.result_id = identifier
+            st.success("Протокол сохранён и доступен в разделе «Сохранённые протоколы».")
 
 
 st.markdown(
@@ -609,7 +632,7 @@ with st.container(border=True):
 
     mode = st.radio(
         "Режим работы",
-        ("Демо интерфейса", "Локальная обработка аудио"),
+        ("Демо интерфейса", "Локальная обработка аудио", "Сохранённые протоколы"),
         horizontal=True,
         help="Демо использует синтетический MeetingResult и не обрабатывает загруженный файл.",
     )
@@ -627,7 +650,7 @@ if mode == "Демо интерфейса":
                 "demo",
             )
             status.update(label="Демо готово", state="complete", expanded=False)
-else:
+elif mode == "Локальная обработка аудио":
     upload = st.file_uploader(
         "Аудиозапись совещания",
         type=["mp3", "wav"],
@@ -643,6 +666,8 @@ else:
             "result",
             "result_source",
             "result_kind",
+            "result_id",
+            "result_origin_kind",
             "action_editor",
             "transcript_editor",
             "reviewed_result",
@@ -671,7 +696,43 @@ else:
                 else "Обработка завершена"
             )
             stage_status.update(label=label, state="complete", expanded=False)
+else:
+    try:
+        saved = list_meetings()
+    except Exception as exc:
+        st.error(f"Не удалось открыть базу протоколов: {exc}")
+        saved = []
+    if saved:
+        labels = {
+            row["id"]: f"{row['title']} · {row['updated_at'][:16]} · "
+            f"{'демо' if row['source_kind'] == 'demo' else 'аудио'}"
+            for row in saved
+        }
+        selected = st.selectbox(
+            "Сохранённые совещания",
+            [row["id"] for row in saved],
+            format_func=labels.__getitem__,
+        )
+        if st.button("Открыть сохранённый протокол", type="primary"):
+            try:
+                result, source_label, origin_kind = load_meeting(selected)
+            except Exception as exc:
+                st.error(f"Не удалось загрузить протокол: {exc}")
+            else:
+                _store_result(
+                    result,
+                    source_label,
+                    "saved",
+                    meeting_id=selected,
+                    origin_kind=origin_kind,
+                )
+    else:
+        st.info("Сохранённых протоколов пока нет.")
 
-expected_kind = "demo" if mode == "Демо интерфейса" else "local"
+expected_kind = {
+    "Демо интерфейса": "demo",
+    "Локальная обработка аудио": "local",
+    "Сохранённые протоколы": "saved",
+}[mode]
 if st.session_state.get("result_kind") == expected_kind:
     _render_result(st.session_state.result, st.session_state.result_source)
