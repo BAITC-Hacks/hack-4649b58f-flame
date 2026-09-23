@@ -59,6 +59,21 @@ NON_ASSIGNMENT_PATTERNS = [
     re.compile(r"\bкто\s+(?:может|сможет|готов)\b", re.I),
     re.compile(r"\b(?:нужно|надо|стоит|можно)\s+ли\b", re.I),
 ]
+COMPLETED_FACT_PATTERNS = [
+    re.compile(
+        r"\b(?:уже\s+)?(?:сделал(?:а|и)?|подготовил(?:а|и)?|отправил(?:а|и)?|"
+        r"проверил(?:а|и)?|наш[её]л|нашла|нашли|собрал(?:а|и)?|предоставил(?:а|и)?|"
+        r"разработал(?:а|и)?|уточнил(?:а|и)?|организовал(?:а|и)?|сформировал(?:а|и)?)\b",
+        re.I,
+    ),
+    re.compile(r"\b(?:готово|выполнено|завершено|сделано|подготовлено|отправлено|проверено)\b", re.I),
+]
+CANCELLATION_PATTERNS = [
+    re.compile(r"\b(?:отменяем|отменили|отменить|отмена)\b", re.I),
+    re.compile(r"\b(?:снимаем|снять|сняли)\s+(?:это\s+)?поручение\b", re.I),
+    re.compile(r"\bпоручение\s+(?:снимается|отменяется|отменено)\b", re.I),
+    re.compile(r"\bне\s+(?:надо|нужно|требуется|следует)\b", re.I),
+]
 DEADLINE_PATTERNS = [
     re.compile(r"\b(?:сегодня|завтра|послезавтра)\b", re.I),
     re.compile(
@@ -135,6 +150,7 @@ class MeetingProtocolAgent:
             speakers = self._speakers(payload.get("speakers", []), source, warnings)
             actions = self._actions(payload.get("action_items", []), source, meeting_date, warnings)
             validated_count = len(actions)
+            actions = self._remove_cancelled(actions, source, warnings)
             actions = self._dedupe(actions, warnings)
             summary = self._summary(actions)
         except Exception as exc:
@@ -449,21 +465,75 @@ class MeetingProtocolAgent:
         return out
 
     def _merge_duplicates(self, first: ActionItem, second: ActionItem) -> ActionItem:
-        assignee = first.assignee or second.assignee
-        deadline_text = first.deadline_text or second.deadline_text
-        deadline_iso = first.deadline_iso or second.deadline_iso
-        evidence_choice = max(
+        # Never synthesize assignee/deadline from different evidence fragments.
+        # Choose one complete, grounded record and keep its evidence and fields together.
+        return max(
             (first, second),
-            key=lambda item: (bool(item.assignee) + bool(item.deadline_text), not item.needs_review, item.confidence),
+            key=lambda item: (
+                bool(item.assignee) + bool(item.deadline_text),
+                not item.needs_review,
+                item.confidence,
+                len(self._content_tokens(self._norm(item.task))),
+            ),
         )
-        warning = first.warning
-        if second.warning:
-            warning = self._append_warning(warning, second.warning)
-        return evidence_choice.model_copy(update={
-            "assignee": assignee, "deadline_text": deadline_text, "deadline_iso": deadline_iso,
-            "confidence": max(first.confidence, second.confidence),
-            "needs_review": first.needs_review or second.needs_review, "warning": warning,
-        })
+
+    def _remove_cancelled(
+        self,
+        items: list[ActionItem],
+        transcript: list[TranscriptSegment],
+        warnings: list[str],
+    ) -> list[ActionItem]:
+        kept: list[ActionItem] = []
+        for item in items:
+            evidence_index = self._find_evidence_index(item, transcript)
+            if evidence_index is None:
+                kept.append(item)
+                continue
+            cancellation = next(
+                (
+                    segment for segment in transcript[evidence_index + 1:]
+                    if self._is_explicit_cancellation(segment.text)
+                    and self._task_mentioned(item.task, segment.text)
+                ),
+                None,
+            )
+            if cancellation is None:
+                kept.append(item)
+                continue
+            warnings.append(
+                f"{item.task}: поручение позднее отменено/снято; "
+                f"исключено из активных поручений по реплике {cancellation.id}."
+            )
+        return kept
+
+    @staticmethod
+    def _find_evidence_index(item: ActionItem, transcript: list[TranscriptSegment]) -> int | None:
+        for index, segment in enumerate(transcript):
+            if (
+                segment.text == item.evidence
+                and segment.start == item.evidence_start
+                and segment.end == item.evidence_end
+            ):
+                return index
+        return None
+
+    @staticmethod
+    def _is_explicit_cancellation(text: str) -> bool:
+        return any(pattern.search(text) for pattern in CANCELLATION_PATTERNS)
+
+    def _task_mentioned(self, task: str, text: str) -> bool:
+        task_norm, text_norm = self._norm(task), self._norm(text)
+        if task_norm in text_norm:
+            return True
+        task_tokens = self._content_tokens(task_norm)
+        text_tokens = self._content_tokens(text_norm)
+        if not task_tokens or not text_tokens:
+            return False
+        matched = sum(
+            any(self._token_match(token, candidate) for candidate in text_tokens)
+            for token in task_tokens
+        )
+        return matched / len(task_tokens) >= 0.75
 
     def _grounded(self, task: str, evidence: str) -> bool:
         task_norm, evidence_norm = self._norm(task), self._norm(evidence)
@@ -552,7 +622,10 @@ class MeetingProtocolAgent:
 
     @staticmethod
     def _is_negated_or_non_assignment(text: str) -> bool:
-        return any(pattern.search(text) for pattern in (*NEGATED_ACTION_PATTERNS, *NON_ASSIGNMENT_PATTERNS))
+        return any(
+            pattern.search(text)
+            for pattern in (*NEGATED_ACTION_PATTERNS, *NON_ASSIGNMENT_PATTERNS, *COMPLETED_FACT_PATTERNS)
+        )
 
     @staticmethod
     def _root(token: str) -> str:
