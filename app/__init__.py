@@ -1,0 +1,1 @@
+"""QazMeeting AI application."""
