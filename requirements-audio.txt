@@ -1,0 +1,8 @@
+-r requirements.txt
+
+# Apple Silicon-native multilingual Whisper inference.
+mlx-whisper>=0.4,<1
+
+# Optional local speaker diarization. The transcript falls back to UNKNOWN if
+# this dependency or its locally cached/configured model is unavailable.
+pyannote.audio>=4,<5

@@ -145,6 +145,58 @@ pip install -r requirements.txt
 cp .env.example .env  # Windows PowerShell: Copy-Item .env.example .env
 ```
 
+## Локальное распознавание аудио
+
+Публичная точка интеграции для UI и агента:
+
+```python
+from app.services.audio import process_audio
+
+segments = process_audio("/path/to/meeting.mp3")
+```
+
+`process_audio(audio_path: str) -> list[TranscriptSegment]` принимает MP3/WAV и
+использует ровно `TranscriptSegment` из `app/models/schemas.py`. На Apple
+Silicon распознавание выполняет локальный multilingual Whisper через MLX;
+русский, казахский и смешанная речь не ограничиваются принудительно одним
+языком. Имена говорящих не угадываются и остаются `None`.
+
+Установка под Python 3.11:
+
+```bash
+python3.11 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements-audio.txt
+```
+
+Первый запуск загружает STT-модель `mlx-community/whisper-small-mlx-q4` в
+локальный кэш. Модель можно заменить локальным каталогом или другим MLX
+checkpoint через `AUDIO_STT_MODEL`. Значение `AUDIO_LANGUAGE=ru` или `kk`
+допустимо только когда язык заранее достоверно известен; без него Whisper
+работает в режиме автоматического multilingual-распознавания.
+
+Диаризация выполняется локально моделью
+`pyannote/speaker-diarization-community-1`. Для её первоначальной загрузки
+нужно один раз принять условия модели в Hugging Face и передать `HF_TOKEN`,
+либо скачать модель заранее и установить путь в `AUDIO_DIARIZATION_MODEL`.
+Само аудио и транскрипт во внешние API не отправляются; телеметрия pyannote
+отключена. По умолчанию диаризация работает на CPU для совместимости с macOS;
+устройство можно явно задать через `AUDIO_DIARIZATION_DEVICE`.
+
+Если зависимость или модель диаризации недоступна, распознавание не теряется:
+функция выдаёт `RuntimeWarning`, пишет причину в журнал и возвращает сегменты с
+`speaker_id="UNKNOWN"`. Это честный fallback, а не идентификация человека.
+
+Smoke test на реальном файле вне Git:
+
+```bash
+python scripts/smoke_audio.py "/path/to/Совещание №1.mp3" --limit 8
+```
+
+Скрипт печатает длительность обработки, число сегментов, найденные speaker id и
+несколько реплик с таймкодами. Аудиозаписи, модели и токены уже исключены из
+Git через `.gitignore`; не добавляйте их принудительно.
+
 ## Секреты
 
 Файл `.env` находится в `.gitignore`.
@@ -161,7 +213,18 @@ cp .env.example .env  # Windows PowerShell: Copy-Item .env.example .env
 
 На `main` создан архитектурный фундамент: общие Pydantic-схемы, конфигурация, интерфейсы Meeting Protocol Agent, базовые зависимости и правила хранения секретов.
 
-STT, диаризация, локальная LLM-реализация агента, Streamlit UI и DOCX export пока не проверены сквозным тестом. `MeetingProtocolAgent.run()` в `main` намеренно сообщает `NotImplementedError`. Запуск приложения пока не документирован, так как входная точка UI ещё не добавлена.
+В `feature/audio` локальный STT проверен на настоящем `Совещание №1.mp3`:
+MLX Whisper вернул 81 сегмент с таймкодами на MacBook Air M4. Первый запуск
+занял 101,5 с вместе с загрузкой модели; повторный запуск с моделью в кэше и
+`HF_HUB_OFFLINE=1` занял 16,23 с.
+Локальная интеграция pyannote и fallback проверены, но качество диаризации ещё не
+подтверждено: без принятого доступа к gated-модели запуск получил HTTP 401 и
+корректно сохранил транскрипт с `speaker_id="UNKNOWN"` и предупреждением.
+
+Локальная LLM-реализация агента, Streamlit UI и DOCX export пока не проверены
+сквозным тестом. `MeetingProtocolAgent.run()` в `main` намеренно сообщает
+`NotImplementedError`. Запуск приложения пока не документирован, так как
+входная точка UI ещё не добавлена.
 
 ## Проверка фундамента
 
