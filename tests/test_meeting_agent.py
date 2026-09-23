@@ -851,3 +851,95 @@ def test_completed_task_stays_rejected_when_followed_by_unrelated_assignment():
         "Отправить отчёт",
         "Ерлан отправил отчёт и должен проверить договор.",
     ) is False
+
+
+def test_completed_business_actions_are_not_new_tasks():
+    agent = FakeAgent({})
+    assert agent._grounded("Оплатить счёт", "Ерлан оплатил счёт вчера.") is False
+    assert agent._grounded("Согласовать договор", "Ботагоз согласовала договор.") is False
+    assert agent._grounded("Подписать акт", "Акт уже подписал Ерлан.") is False
+
+
+def test_full_name_self_identification_requires_full_name():
+    agent = FakeAgent({})
+    assert agent._self_identifies(
+        "Ерлан Нурланович",
+        "Я Ерлан Серикович, подключился.",
+    ) is False
+    assert agent._self_identifies(
+        "Ерлан Нурланович",
+        "Я Ерлан Нурланович, подключился.",
+    ) is True
+
+
+def test_negated_assignee_is_removed():
+    transcript = [
+        TranscriptSegment(
+            id=1,
+            start=0,
+            end=4,
+            speaker_id="S1",
+            text="Не Ерлан, а Данияр подготовит отчёт к пятнице.",
+        )
+    ]
+    payload = {
+        "speakers": [],
+        "action_items": [
+            {
+                "task": "Подготовить отчёт",
+                "assignee": "Ерлан",
+                "author_speaker_id": "S1",
+                "deadline_text": "к пятнице",
+                "evidence_segment_id": 1,
+                "confidence": 0.95,
+                "needs_review": False,
+            }
+        ],
+    }
+    result = FakeAgent(payload).run(transcript, date(2026, 9, 21), "Negated assignee")
+    assert result.action_items[0].assignee is None
+    assert result.action_items[0].needs_review is True
+
+
+def test_alternative_assignee_is_not_treated_as_certain():
+    agent = FakeAgent({})
+    assert agent._name_is_negated_or_alternative(
+        "Ерлан",
+        "Ерлан или Данияр подготовит отчёт.",
+    ) is True
+    assert agent._name_is_negated_or_alternative(
+        "Данияр",
+        "Ерлан либо Данияр подготовит отчёт.",
+    ) is True
+
+
+def test_negated_deadline_keeps_text_but_no_exact_date():
+    transcript = [
+        TranscriptSegment(
+            id=1,
+            start=0,
+            end=4,
+            speaker_id="S1",
+            text="Ерлан, подготовь отчёт, но не к пятнице.",
+        )
+    ]
+    payload = {
+        "speakers": [],
+        "action_items": [
+            {
+                "task": "Подготовить отчёт",
+                "assignee": "Ерлан",
+                "author_speaker_id": "S1",
+                "deadline_text": "к пятнице",
+                "evidence_segment_id": 1,
+                "confidence": 0.95,
+                "needs_review": False,
+            }
+        ],
+    }
+    result = FakeAgent(payload).run(transcript, date(2026, 9, 21), "Negated deadline")
+    item = result.action_items[0]
+    assert item.deadline_text == "к пятнице"
+    assert item.deadline_iso is None
+    assert item.needs_review is True
+    assert "с отрицанием" in (item.warning or "")
