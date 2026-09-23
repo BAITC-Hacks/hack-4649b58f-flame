@@ -522,15 +522,15 @@ class MeetingProtocolAgent:
             deadline_text = self._string(item.get("deadline_text"))
             deadline_conflict = False
             if deadline_text:
-                in_evidence = self._contains_exact_phrase(deadline_text, evidence.text)
+                in_evidence = self._deadline_matches_source(deadline_text, evidence.text)
                 same_speaker_match = any(
-                    self._contains_exact_phrase(deadline_text, segment.text)
+                    self._deadline_matches_source(deadline_text, segment.text)
                     for segment in author_context
                 )
                 matching_segments = [
                     segment
                     for segment in context
-                    if self._contains_exact_phrase(deadline_text, segment.text)
+                    if self._deadline_matches_source(deadline_text, segment.text)
                 ]
                 if not matching_segments:
                     deadline_text = None
@@ -909,6 +909,15 @@ class MeetingProtocolAgent:
                 unique.append(value)
                 seen.add(normalized)
         return unique
+
+    def _deadline_matches_source(self, deadline_text: str, text: str) -> bool:
+        deadline_norm = self._norm(deadline_text)
+        if not deadline_norm:
+            return False
+        candidates = self._deadline_candidates(text)
+        if candidates:
+            return deadline_norm in {self._norm(candidate) for candidate in candidates}
+        return self._contains_exact_phrase(deadline_text, text)
 
     def _extract_deadline_text(self, text: str) -> str | None:
         candidates = self._deadline_candidates(text)
