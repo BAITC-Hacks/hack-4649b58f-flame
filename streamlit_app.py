@@ -23,23 +23,23 @@ st.markdown(
     """
     <style>
     :root {
-        --ink: #172033;
-        --muted: #687086;
-        --surface: rgba(255, 255, 255, 0.92);
-        --line: #E4E7F0;
-        --brand: #635BFF;
-        --brand-dark: #4238D5;
-        --teal: #1FA7A0;
+        --ink: #F4EEE8;
+        --muted: #B8ADA4;
+        --surface: rgba(35, 31, 28, 0.84);
+        --line: rgba(255, 235, 220, 0.12);
+        --brand: #D97745;
+        --brand-dark: #A84F2E;
+        --teal: #E6A15B;
     }
 
     @keyframes qaz-rise {
-        from { opacity: 0; transform: translateY(14px); }
+        from { opacity: 0; transform: translateY(10px); }
         to { opacity: 1; transform: translateY(0); }
     }
 
     @keyframes qaz-float {
         0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
-        50% { transform: translate3d(-18px, 16px, 0) scale(1.06); }
+        50% { transform: translate3d(-12px, 11px, 0) scale(1.035); }
     }
 
     @keyframes qaz-pulse {
@@ -59,9 +59,9 @@ st.markdown(
 
     .stApp {
         background:
-            radial-gradient(circle at 8% 5%, rgba(99, 91, 255, 0.11), transparent 25rem),
-            radial-gradient(circle at 92% 8%, rgba(31, 167, 160, 0.09), transparent 23rem),
-            #F6F7FB;
+            radial-gradient(circle at 8% 4%, rgba(217, 119, 69, 0.16), transparent 28rem),
+            radial-gradient(circle at 92% 7%, rgba(230, 161, 91, 0.08), transparent 25rem),
+            linear-gradient(180deg, #151311 0%, #191512 46%, #12100F 100%);
     }
 
     [data-testid="stMainBlockContainer"] {
@@ -76,10 +76,10 @@ st.markdown(
         padding: 2.15rem 2.35rem;
         border-radius: 24px;
         color: white;
-        background: linear-gradient(128deg, #24234F 0%, #5149D8 52%, #168C91 130%);
-        box-shadow: 0 20px 55px rgba(46, 43, 122, 0.22);
+        background: linear-gradient(128deg, #191512 0%, #35231C 55%, #713923 130%);
+        box-shadow: 0 24px 65px rgba(0, 0, 0, 0.34);
         margin-bottom: 1.35rem;
-        animation: qaz-rise .62s cubic-bezier(.2,.75,.25,1) both;
+        animation: qaz-rise .9s cubic-bezier(.22,1,.36,1) both;
     }
 
     .qaz-hero::after {
@@ -90,8 +90,8 @@ st.markdown(
         right: -72px;
         top: -105px;
         border-radius: 50%;
-        background: rgba(255, 255, 255, 0.09);
-        animation: qaz-float 8s ease-in-out infinite;
+        background: rgba(255, 214, 183, 0.07);
+        animation: qaz-float 14s ease-in-out infinite;
         pointer-events: none;
     }
 
@@ -102,7 +102,7 @@ st.markdown(
         height: 170px;
         left: 56%;
         bottom: -132px;
-        border: 1px solid rgba(255,255,255,.12);
+        border: 1px solid rgba(255,220,194,.10);
         border-radius: 50%;
         box-shadow: 0 0 0 34px rgba(255,255,255,.035), 0 0 0 68px rgba(255,255,255,.025);
         pointer-events: none;
@@ -115,7 +115,7 @@ st.markdown(
         padding: .38rem .72rem;
         border: 1px solid rgba(255,255,255,.24);
         border-radius: 999px;
-        background: rgba(255,255,255,.10);
+        background: rgba(255,235,220,.08);
         font-size: .76rem;
         font-weight: 700;
         letter-spacing: .09em;
@@ -127,9 +127,9 @@ st.markdown(
         width: 7px;
         height: 7px;
         border-radius: 50%;
-        background: #75F1D7;
-        box-shadow: 0 0 0 5px rgba(117,241,215,.13);
-        animation: qaz-pulse 2s ease-in-out infinite;
+        background: #F0A66C;
+        box-shadow: 0 0 0 5px rgba(240,166,108,.12);
+        animation: qaz-pulse 3.4s ease-in-out infinite;
     }
 
     .qaz-hero h1 {
@@ -158,16 +158,16 @@ st.markdown(
     .qaz-feature {
         padding: .43rem .68rem;
         border-radius: 10px;
-        background: rgba(255,255,255,.11);
+        background: rgba(255,235,220,.075);
         color: rgba(255,255,255,.92);
         font-size: .82rem;
         font-weight: 600;
-        transition: transform .2s ease, background .2s ease;
+        transition: transform .38s cubic-bezier(.22,1,.36,1), background .38s ease;
     }
 
     .qaz-feature:hover {
         transform: translateY(-2px);
-        background: rgba(255,255,255,.18);
+        background: rgba(255,235,220,.13);
     }
 
     .qaz-signal {
@@ -182,9 +182,9 @@ st.markdown(
         width: 86px;
         height: 44px;
         padding: 0 12px;
-        border: 1px solid rgba(255,255,255,.18);
+        border: 1px solid rgba(255,224,202,.14);
         border-radius: 14px;
-        background: rgba(13,19,61,.18);
+        background: rgba(18,13,10,.28);
         backdrop-filter: blur(8px);
     }
 
@@ -192,9 +192,9 @@ st.markdown(
         width: 4px;
         min-height: 8px;
         border-radius: 99px;
-        background: linear-gradient(180deg, #FFFFFF, #75F1D7);
-        animation: qaz-wave 1.15s ease-in-out infinite;
-        animation-delay: calc(var(--i) * -0.13s);
+        background: linear-gradient(180deg, #FFE7D2, #E38A52);
+        animation: qaz-wave 1.8s ease-in-out infinite;
+        animation-delay: calc(var(--i) * -0.19s);
     }
 
     .qaz-flow {
@@ -202,7 +202,7 @@ st.markdown(
         grid-template-columns: repeat(3, 1fr);
         gap: .7rem;
         margin: 0 0 1.35rem;
-        animation: qaz-rise .62s .1s cubic-bezier(.2,.75,.25,1) both;
+        animation: qaz-rise .95s .12s cubic-bezier(.22,1,.36,1) both;
     }
 
     .qaz-flow-item {
@@ -210,20 +210,20 @@ st.markdown(
         align-items: center;
         gap: .72rem;
         padding: .78rem .9rem;
-        border: 1px solid rgba(99,91,255,.11);
+        border: 1px solid rgba(255,235,220,.10);
         border-radius: 14px;
-        background: rgba(255,255,255,.66);
+        background: rgba(35,31,28,.68);
         color: var(--muted);
         font-size: .82rem;
         font-weight: 600;
         backdrop-filter: blur(9px);
-        transition: transform .2s ease, border-color .2s ease, box-shadow .2s ease;
+        transition: transform .4s cubic-bezier(.22,1,.36,1), border-color .4s ease, box-shadow .4s ease;
     }
 
     .qaz-flow-item:hover {
         transform: translateY(-3px);
-        border-color: rgba(99,91,255,.28);
-        box-shadow: 0 9px 22px rgba(31,38,69,.07);
+        border-color: rgba(217,119,69,.34);
+        box-shadow: 0 12px 30px rgba(0,0,0,.18);
     }
 
     .qaz-flow-number {
@@ -233,19 +233,20 @@ st.markdown(
         width: 27px;
         height: 27px;
         border-radius: 9px;
-        background: linear-gradient(135deg, #635BFF, #1FA7A0);
+        background: linear-gradient(135deg, #D97745, #E6A15B);
         color: white;
         font-size: .72rem;
-        box-shadow: 0 5px 13px rgba(99,91,255,.2);
+        box-shadow: 0 6px 16px rgba(168,79,46,.27);
     }
 
     [data-testid="stVerticalBlockBorderWrapper"] {
         border-color: var(--line);
         border-radius: 18px;
         background: var(--surface);
-        box-shadow: 0 8px 28px rgba(31, 38, 69, 0.055);
-        animation: qaz-rise .5s cubic-bezier(.2,.75,.25,1) both;
-        transition: border-color .2s ease, box-shadow .2s ease;
+        box-shadow: 0 12px 36px rgba(0, 0, 0, 0.16);
+        backdrop-filter: blur(18px) saturate(115%);
+        animation: qaz-rise .82s cubic-bezier(.22,1,.36,1) both;
+        transition: border-color .36s ease, box-shadow .36s ease;
     }
 
     [data-testid="stMetric"] {
@@ -254,14 +255,15 @@ st.markdown(
         border: 1px solid var(--line);
         border-radius: 16px;
         background: var(--surface);
-        box-shadow: 0 8px 24px rgba(31, 38, 69, 0.045);
-        transition: transform .2s ease, border-color .2s ease, box-shadow .2s ease;
+        box-shadow: 0 10px 28px rgba(0, 0, 0, 0.15);
+        backdrop-filter: blur(16px) saturate(115%);
+        transition: transform .42s cubic-bezier(.22,1,.36,1), border-color .42s ease, box-shadow .42s ease;
     }
 
     [data-testid="stMetric"]:hover {
         transform: translateY(-4px);
-        border-color: rgba(99,91,255,.24);
-        box-shadow: 0 14px 32px rgba(31,38,69,.09);
+        border-color: rgba(217,119,69,.3);
+        box-shadow: 0 18px 38px rgba(0,0,0,.24);
     }
 
     [data-testid="stMetricLabel"] { color: var(--muted); }
@@ -272,9 +274,9 @@ st.markdown(
         border: 0;
         border-radius: 12px;
         background: linear-gradient(120deg, var(--brand), var(--brand-dark));
-        box-shadow: 0 9px 22px rgba(99, 91, 255, .24);
+        box-shadow: 0 10px 26px rgba(168, 79, 46, .29);
         font-weight: 700;
-        transition: transform .15s ease, box-shadow .15s ease;
+        transition: transform .34s cubic-bezier(.22,1,.36,1), box-shadow .34s ease;
         position: relative;
         overflow: hidden;
     }
@@ -287,7 +289,7 @@ st.markdown(
         width: 22%;
         background: rgba(255,255,255,.28);
         filter: blur(1px);
-        animation: qaz-sheen 4.8s ease-in-out infinite;
+        animation: qaz-sheen 7.5s ease-in-out infinite;
         pointer-events: none;
     }
 
@@ -298,27 +300,27 @@ st.markdown(
     .stButton > button[kind="primary"]:hover,
     .stDownloadButton > button[kind="primary"]:hover {
         transform: translateY(-1px);
-        box-shadow: 0 12px 27px rgba(99, 91, 255, .31);
+        box-shadow: 0 15px 32px rgba(168, 79, 46, .38);
     }
 
     [data-testid="stFileUploaderDropzone"] {
-        border: 1.5px dashed #AAA6F5;
+        border: 1.5px dashed #9E624A;
         border-radius: 15px;
-        background: #F7F6FF;
+        background: #211B18;
     }
 
     [data-baseweb="tab-list"] {
         gap: .35rem;
         padding: .35rem;
         border-radius: 14px;
-        background: #EBEDF5;
+        background: #211D1A;
     }
 
     [data-baseweb="tab"] {
         border-radius: 10px;
         padding-left: 1rem;
         padding-right: 1rem;
-        transition: color .18s ease, background .18s ease, transform .18s ease;
+        transition: color .34s ease, background .34s ease, transform .34s cubic-bezier(.22,1,.36,1);
     }
 
     [data-baseweb="tab"]:hover {
@@ -326,8 +328,8 @@ st.markdown(
     }
 
     [aria-selected="true"][data-baseweb="tab"] {
-        background: white;
-        box-shadow: 0 3px 12px rgba(31, 38, 69, .09);
+        background: #352A24;
+        box-shadow: 0 5px 16px rgba(0,0,0,.23);
     }
 
     [data-testid="stDataFrame"] {
@@ -338,7 +340,7 @@ st.markdown(
 
     .qaz-section-label {
         margin: 1.6rem 0 .65rem;
-        color: #5149D8;
+        color: #E59A6A;
         font-size: .76rem;
         font-weight: 800;
         letter-spacing: .1em;
@@ -346,7 +348,7 @@ st.markdown(
         display: flex;
         align-items: center;
         gap: .48rem;
-        animation: qaz-rise .42s cubic-bezier(.2,.75,.25,1) both;
+        animation: qaz-rise .78s cubic-bezier(.22,1,.36,1) both;
     }
 
     .qaz-section-label::before {
@@ -355,7 +357,7 @@ st.markdown(
         height: 8px;
         border-radius: 50%;
         background: linear-gradient(135deg, var(--brand), var(--teal));
-        box-shadow: 0 0 0 5px rgba(99,91,255,.08);
+        box-shadow: 0 0 0 5px rgba(217,119,69,.10);
     }
 
     .qaz-export-copy {
