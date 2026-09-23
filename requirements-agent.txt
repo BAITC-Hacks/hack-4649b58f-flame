@@ -1,0 +1,2 @@
+# MeetingProtocolAgent has no extra Python runtime dependency beyond requirements.txt.
+# Ollama is installed separately as a local service; no cloud AI SDK is used.
