@@ -1,4 +1,4 @@
-"""Application services."""
+"""Application services used by the UI and integration layer."""
 
 from app.services.audio import process_audio
 

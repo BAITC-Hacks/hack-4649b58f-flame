@@ -1,0 +1,3 @@
+-r requirements.txt
+
+# UI-specific dependencies are already pinned in the shared requirements.txt.

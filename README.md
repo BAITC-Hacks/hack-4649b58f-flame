@@ -40,7 +40,7 @@
 | Speaker diarization | Есть локальный адаптер и безопасный fallback. В проверенном прогоне модель была недоступна, поэтому все сегменты получили `speaker_id="UNKNOWN"`; имена говорящих не угадываются. |
 | Meeting Protocol Agent | Локальная реализация Ollama, evidence-проверка, нормализация сроков, отмены и дедупликация добавлены вместе с материалами кейса. Качество зависит от модели и требует ручной проверки. |
 | Материалы кейса | В `case_materials/` добавлены описание кейса, эталонные протоколы, манифест и ожидаемые поручения. MP3 и полные транскрипты не коммитятся. |
-| UI и DOCX | Остаются в `feature/ui`; единый путь MP3 → DOCX в этой ветке не подтверждён. |
+| UI и DOCX | Объединены в `main`: Streamlit, ручное редактирование и экспорт DOCX. Полный путь MP3 → DOCX с настоящими моделями пока не подтверждён. |
 
 Отдельная строгая проверка агента на материалах совещания №2 с
 `qwen3:1.7b` дала 0/5 обязательных ожиданий: единственный кандидат был
@@ -98,8 +98,8 @@ MeetingProtocolAgent (Ollama, local)
       v
 MeetingResult (Pydantic)
       |
-      +--> Streamlit UI (feature/ui)
-      +--> DOCX export (feature/ui)
+      +--> Streamlit UI
+      +--> DOCX export
 ```
 
 Если диаризация недоступна, транскрипция сохраняется, выдаётся предупреждение
@@ -176,6 +176,24 @@ pip install -r requirements-audio.txt
 Face один раз; токен задаётся только через окружение `HF_TOKEN` или локальный
 путь `AUDIO_DIARIZATION_MODEL`. Если модель недоступна, срабатывает fallback
 `UNKNOWN`, а текст не теряется.
+
+## Streamlit UI и DOCX
+
+Для запуска интерфейса под Windows:
+
+```powershell
+python -m venv .venv
+.venv\Scripts\python.exe -m pip install -r requirements-ui.txt
+.venv\Scripts\python.exe -m streamlit run streamlit_app.py
+```
+
+Demo-режим использует явно помеченные синтетические данные. В локальном режиме
+UI вызывает `app.services.audio.process_audio`, затем `MeetingProtocolAgent.run`.
+Перед экспортом DOCX можно исправить имена говорящих, исполнителей и сроки.
+
+Текущий STT-backend — MLX Whisper для Apple Silicon. Он не работает на Windows;
+запуск интерфейса и demo-режима не доказывает работоспособность MP3 → DOCX на Windows.
+Ошибка распознавания показывается отдельно, без подмены результата demo-данными.
 
 ## Smoke test аудио
 
