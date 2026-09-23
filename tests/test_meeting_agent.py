@@ -580,10 +580,48 @@ def test_split_status_statement_is_not_an_infinitive_assignment():
         TranscriptSegment(id=2, start=2, end=4, text="создать документацию, платежи не проходят."),
     ]
     result = FakeAgent({"speakers": [], "action_items": [
-        {"task": "Создать документацию", "evidence_segment_id": 2, "confidence": 1},
+        {"task": "Создать документацию", "evidence_segment_id": 1, "confidence": 1},
     ]}).run(transcript, None, "Fragmented STT")
     assert result.action_items == []
-    assert any("продолжение реплики" in warning for warning in result.warnings)
+    assert any("не подтверждается evidence" in warning for warning in result.warnings)
+
+
+def test_stt_continuations_preserve_original_and_ground_complete_assignment():
+    transcript = [
+        TranscriptSegment(id=1, start=0, end=2, text="Ерлан, подготовьте"),
+        TranscriptSegment(id=2, start=2, end=4, text="претензию поставщику до конца недели."),
+    ]
+    original = [s.model_dump() for s in transcript]
+    result = FakeAgent({"speakers": [], "action_items": [
+        {"task": "Подготовить претензию поставщику", "assignee": "Ерлан",
+         "deadline_text": "до конца недели", "evidence_segment_id": 1, "confidence": 1},
+    ]}).run(transcript, date(2026, 9, 23), "Split assignment")
+    assert [s.model_dump() for s in result.transcript] == original
+    assert len(result.action_items) == 1
+    item = result.action_items[0]
+    assert item.evidence == " ".join(s.text for s in transcript)
+    assert (item.evidence_start, item.evidence_end) == (0, 4)
+    assert item.assignee == "Ерлан"
+    assert item.deadline_text == "до конца недели"
+    assert item.deadline_iso is None
+    assert item.needs_review
+
+
+def test_noun_ending_like_infinitive_is_not_assignment_signal():
+    assert not MeetingProtocolAgent()._grounded(
+        "Определить системную недисциплинированность",
+        "Это системная недисциплинированность или конкретные подрядчики?",
+    )
+
+
+@pytest.mark.parametrize("second", [
+    TranscriptSegment(id=2, start=2, end=4, speaker_id="S2", text="отчёт завтра."),
+    TranscriptSegment(id=2, start=5, end=6, speaker_id="S1", text="отчёт завтра."),
+    TranscriptSegment(id=2, start=2, end=4, speaker_id="S1", text="Другая тема."),
+])
+def test_stt_continuations_do_not_cross_speaker_pause_or_sentence(second):
+    first = TranscriptSegment(id=1, start=0, end=2, speaker_id="S1", text="Подготовьте")
+    assert len(MeetingProtocolAgent._join_continuations([first, second])) == 2
 
 
 def test_extra_second_action_is_not_accepted_from_shared_object():
