@@ -220,7 +220,8 @@ def test_do_not_forget_phrase_is_not_treated_as_negation_or_cancellation():
     assert agent._is_explicit_cancellation(text) is False
 
 
-def test_local_ollama_transport_disables_environment_proxies(monkeypatch):
+@pytest.mark.parametrize("done_reason", ["stop", "length"])
+def test_local_ollama_transport_disables_environment_proxies(monkeypatch, done_reason):
     captured = {}
 
     class DummyResponse:
@@ -232,13 +233,14 @@ def test_local_ollama_transport_disables_environment_proxies(monkeypatch):
 
         def read(self, size=-1):
             captured["read_size"] = size
-            body = b'{"message":{"content":"{}"}}'
+            body = json.dumps({"message": {"content": "{}"}, "done_reason": done_reason}).encode()
             return body if size < 0 else body[:size]
 
     class DummyOpener:
         def open(self, request, timeout):
             captured["url"] = request.full_url
             captured["timeout"] = timeout
+            captured["payload"] = json.loads(request.data)
             return DummyResponse()
 
     def fake_proxy_handler(proxies):
@@ -253,7 +255,14 @@ def test_local_ollama_transport_disables_environment_proxies(monkeypatch):
     monkeypatch.setattr(urllib.request, "build_opener", fake_build_opener)
 
     agent = MeetingProtocolAgent(base_url="http://127.0.0.1:11434", timeout=7)
-    assert agent._call_ollama("test") == "{}"
+    if done_reason == "length":
+        with pytest.raises(ModelResponseError, match="обрезан"):
+            agent._call_ollama("test")
+    else:
+        assert agent._call_ollama("test") == "{}"
+    schema = captured["payload"]["format"]
+    assert schema["required"] == ["speakers", "action_items"]
+    assert schema["properties"]["action_items"]["items"]["properties"]["evidence_segment_id"] == {"type": "integer"}
     assert captured["proxies"] == {}
     assert captured["url"] == "http://127.0.0.1:11434/api/chat"
     assert captured["timeout"] == 7
@@ -541,6 +550,40 @@ def test_real_ollama_smoke():
     assert all(item.evidence in {segment.text for segment in transcript} for item in result.action_items)
     assignees = {item.assignee for item in result.action_items}
     assert {"Ерлан", "Салтанат Ерболовна", "Ботагоз Нурлановна"}.issubset(assignees)
+    assert len(result.action_items) == 3  # The repeated assignment is deduplicated.
+    by_assignee = {item.assignee: item for item in result.action_items}
+    assert by_assignee["Ерлан"].deadline_iso == date(2026, 9, 23)
+    assert by_assignee["Ботагоз Нурлановна"].deadline_iso == date(2026, 10, 5)
+    assert by_assignee["Салтанат Ерболовна"].deadline_text is None
+    assert by_assignee["Салтанат Ерболовна"].deadline_iso is None
+
+
+def test_unknown_speaker_bucket_cannot_establish_identity_or_neighbor_assignee():
+    transcript = [
+        TranscriptSegment(id=1, start=0, end=2, text="Я Ерлан. Ерлан, подготовь отчёт."),
+        TranscriptSegment(id=2, start=2, end=4, text="Подготовьте договор."),
+    ]
+    result = FakeAgent({
+        "speakers": [{"speaker_id": "UNKNOWN", "proposed_name": "Ерлан", "confidence": 1}],
+        "action_items": [{"task": "Подготовить договор", "assignee": "Ерлан",
+                          "author_speaker_id": "UNKNOWN", "evidence_segment_id": 2,
+                          "confidence": 1, "needs_review": False}],
+    }).run(transcript, None, "Unknown speakers")
+    assert result.speakers[0].proposed_name is None
+    assert result.action_items[0].assignee is None
+    assert result.action_items[0].needs_review is True
+
+
+def test_split_status_statement_is_not_an_infinitive_assignment():
+    transcript = [
+        TranscriptSegment(id=1, start=0, end=2, text="Подрядчики не успевают"),
+        TranscriptSegment(id=2, start=2, end=4, text="создать документацию, платежи не проходят."),
+    ]
+    result = FakeAgent({"speakers": [], "action_items": [
+        {"task": "Создать документацию", "evidence_segment_id": 2, "confidence": 1},
+    ]}).run(transcript, None, "Fragmented STT")
+    assert result.action_items == []
+    assert any("продолжение реплики" in warning for warning in result.warnings)
 
 
 def test_extra_second_action_is_not_accepted_from_shared_object():
