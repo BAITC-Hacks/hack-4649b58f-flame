@@ -69,7 +69,7 @@ ACTION_STEM_GROUPS = {
     "pay": ("оплат",),
 }
 POSITIVE_REMINDER_PATTERN = re.compile(
-    r"\bне\s+(?:(?:надо|нужно)\s+)?(?:забывать|забыть|забудь|забывайте)\b",
+    r"\bне\s+(?:(?:надо|нужно|следует|стоит)\s+)?(?:забывать|забыть|забудь|забывайте)\b",
     re.I,
 )
 NEGATED_ACTION_PATTERNS = [
@@ -86,7 +86,6 @@ NEGATED_ACTION_PATTERNS = [
         r"формировать|сформировать)\b",
         re.I,
     ),
-    re.compile(r"\b(?:отменяем|отменили|снимаем\s+поручение|поручение\s+снимается)\b", re.I),
 ]
 NON_ASSIGNMENT_PATTERNS = [
     re.compile(r"\bкто\s+(?:может|сможет|готов)\b", re.I),
@@ -101,20 +100,21 @@ COMPLETED_FACT_PATTERN = re.compile(
 )
 COMPLETED_ROOT_ALIASES = {"нашел": "найти", "нашёл": "найти", "нашла": "найти", "нашли": "найти"}
 CANCELLATION_PATTERNS = [
-    re.compile(r"\b(?:отменяем|отменили|отменить)\s+(?:(?:это|данное)\s+)?(?:поручение\s+)?", re.I),
-    re.compile(r"\bотмена\s+(?:(?:этого|данного)\s+)?поручения\b", re.I),
+    re.compile(r"\b(?:отменяем|отменили|отменить)\s+(?:(?:это|данное|старое)\s+)?поручение\b", re.I),
+    re.compile(r"\bотмена\s+(?:(?:этого|данного|старого)\s+)?поручения\b", re.I),
     re.compile(r"\b(?:снимаем|снять|сняли)\s+(?:это\s+|данное\s+)?поручение\b", re.I),
     re.compile(r"\bпоручение\s+(?:снимается|отменяется|отменено)\b", re.I),
 ]
-SELF_ASSIGNMENT_PATTERNS = [
-    re.compile(r"\bя\b", re.I),
+SELF_ASSIGNMENT_CUE_PATTERNS = [
     re.compile(r"\bберу\s+на\s+себя\b", re.I),
-    re.compile(
-        r"\b(?:сделаю|подготовлю|отправлю|найду|проверю|соберу|предоставлю|"
-        r"разработаю|уточню|организую|сформирую|возьму|согласую|рассчитаю|оплачу)\b",
-        re.I,
-    ),
+    re.compile(r"\bя\s+(?:должен|должна|обязуюсь|берусь)\b", re.I),
+    re.compile(r"\bмне\s+(?:нужно|надо|поручено|следует)\b", re.I),
 ]
+FIRST_PERSON_ACTION_PATTERN = re.compile(
+    r"\b(?:сделаю|подготовлю|отправлю|найду|проверю|соберу|предоставлю|"
+    r"разработаю|уточню|организую|сформирую|возьму|согласую|рассчитаю|оплачу)\b",
+    re.I,
+)
 DEADLINE_PATTERNS = [
     re.compile(r"\b(?:сегодня|завтра|послезавтра)\b", re.I),
     re.compile(
@@ -411,7 +411,7 @@ class MeetingProtocolAgent:
                 self_assignment = bool(
                     known_speaker_name
                     and self._compatible_assignees(assignee, known_speaker_name)
-                    and self._is_self_assignment(evidence.text)
+                    and self._is_self_assignment(task, evidence.text)
                 )
                 if not (mentioned_in_author_context or self_assignment):
                     assignee = None
@@ -647,12 +647,13 @@ class MeetingProtocolAgent:
         return any(pattern.search(text) for pattern in CANCELLATION_PATTERNS)
 
     def _cancels_task(self, task: str, text: str) -> bool:
-        if self._is_explicit_cancellation(text) and self._task_mentioned(task, text):
-            return True
-        for clause in re.split(r"[,;.!?]|\b(?:а|но|зато)\b", text, flags=re.I):
+        normalized_text = re.sub(r",?\s*пожалуйста\s*,?", " ", text, flags=re.I)
+        for clause in re.split(r"[,;.!?]|\b(?:а|но|зато)\b", normalized_text, flags=re.I):
             cleaned = POSITIVE_REMINDER_PATTERN.sub("", clause)
             if not cleaned.strip():
                 continue
+            if self._is_explicit_cancellation(cleaned) and self._task_mentioned(task, cleaned):
+                return True
             if any(pattern.search(cleaned) for pattern in NEGATED_ACTION_PATTERNS) and self._task_mentioned(task, cleaned):
                 return True
         return False
@@ -661,6 +662,10 @@ class MeetingProtocolAgent:
         task_norm, text_norm = self._norm(task), self._norm(text)
         if task_norm in text_norm:
             return True
+        task_actions = self._action_signatures(task_norm)
+        text_actions = self._action_signatures(text_norm)
+        if task_actions and not task_actions.issubset(text_actions):
+            return False
         task_tokens = self._content_tokens(task_norm)
         text_tokens = self._content_tokens(text_norm)
         if not task_tokens or not text_tokens:
@@ -674,6 +679,8 @@ class MeetingProtocolAgent:
     def _grounded(self, task: str, evidence: str) -> bool:
         task_norm, evidence_norm = self._norm(task), self._norm(evidence)
         if not task_norm or not evidence_norm:
+            return False
+        if self._cancels_task(task, evidence):
             return False
         if self._is_negated_or_non_assignment(evidence):
             return False
@@ -785,7 +792,13 @@ class MeetingProtocolAgent:
         return token if len(token) <= 4 else token[:5]
 
     def _token_match(self, left: str, right: str) -> bool:
-        return left == right or (len(left) >= 5 and len(right) >= 5 and self._root(left) == self._root(right))
+        if left == right:
+            return True
+        left_actions = self._action_signatures(left)
+        right_actions = self._action_signatures(right)
+        if left_actions and left_actions == right_actions:
+            return True
+        return len(left) >= 5 and len(right) >= 5 and self._root(left) == self._root(right)
 
     def _contains_phrase(self, phrase: str, text: str) -> bool:
         phrase_norm, text_norm = self._norm(phrase), self._norm(text)
@@ -822,9 +835,16 @@ class MeetingProtocolAgent:
             )
         )
 
-    @staticmethod
-    def _is_self_assignment(text: str) -> bool:
-        return any(pattern.search(text) for pattern in SELF_ASSIGNMENT_PATTERNS)
+    def _is_self_assignment(self, task: str, text: str) -> bool:
+        if any(pattern.search(text) for pattern in SELF_ASSIGNMENT_CUE_PATTERNS):
+            return self._task_mentioned(task, text)
+        task_actions = self._action_signatures(self._norm(task))
+        if not task_actions:
+            return False
+        for match in FIRST_PERSON_ACTION_PATTERN.finditer(text):
+            if task_actions & self._action_signatures(self._norm(match.group(0))):
+                return True
+        return False
 
     def _name_in_text(self, name: str, text: str) -> bool:
         name_tokens = [token for token in self._norm(name).split() if len(token) >= 3]
