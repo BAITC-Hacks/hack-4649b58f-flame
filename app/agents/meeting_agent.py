@@ -17,6 +17,10 @@ from app.config import local_model_url, validate_local_model_url
 from app.models.schemas import ActionItem, AgentEvent, MeetingResult, SpeakerInfo, TranscriptSegment
 
 DEFAULT_MODEL = "qwen2.5:3b-instruct-q4_K_M"
+MAX_TRANSCRIPT_CHUNK_CHARS = 14_000
+MAX_TRANSCRIPT_CHUNKS = 64
+MAX_AGGREGATE_ACTIONS = 2_000
+MAX_MODEL_RESPONSE_BYTES = 2_000_000
 WORDS = re.compile(r"[0-9A-Za-zА-Яа-яЁёӘәҒғҚқҢңӨөҰұҮүҺһІі]+")
 WEEKDAYS = {
     "понедельник": 0, "понедельника": 0, "понедельнику": 0,
@@ -244,6 +248,8 @@ class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
 class MeetingProtocolAgent:
     def __init__(self, model: str | None = None, base_url: str | None = None, timeout: float = 120) -> None:
         self.model = model or os.getenv("OLLAMA_MODEL") or DEFAULT_MODEL
+        if "cloud" in self.model.casefold():
+            raise ValueError("cloud Ollama models are not allowed for meeting data")
         self.base_url = validate_local_model_url(base_url if base_url is not None else local_model_url())
         if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not math.isfinite(float(timeout)) or timeout <= 0:
             raise ValueError("timeout must be a positive finite number")
