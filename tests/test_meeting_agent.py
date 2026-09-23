@@ -230,8 +230,10 @@ def test_local_ollama_transport_disables_environment_proxies(monkeypatch):
         def __exit__(self, exc_type, exc, tb):
             return False
 
-        def read(self):
-            return b'{"message":{"content":"{}"}}'
+        def read(self, size=-1):
+            captured["read_size"] = size
+            body = b'{"message":{"content":"{}"}}'
+            return body if size < 0 else body[:size]
 
     class DummyOpener:
         def open(self, request, timeout):
@@ -255,6 +257,7 @@ def test_local_ollama_transport_disables_environment_proxies(monkeypatch):
     assert captured["proxies"] == {}
     assert captured["url"] == "http://127.0.0.1:11434/api/chat"
     assert captured["timeout"] == 7
+    assert captured["read_size"] == 2_000_001
 
 
 def test_ambiguous_evidence_location_is_not_used_for_cancellation_matching():

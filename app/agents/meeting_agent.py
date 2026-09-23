@@ -306,6 +306,8 @@ class MeetingProtocolAgent:
                 for action in chunk_payload["action_items"]:
                     if (
                         isinstance(action, dict)
+                        and isinstance(action.get("evidence_segment_id"), int)
+                        and not isinstance(action.get("evidence_segment_id"), bool)
                         and action.get("evidence_segment_id") in chunk_segment_ids
                     ):
                         payload["action_items"].append(action)
@@ -688,6 +690,14 @@ class MeetingProtocolAgent:
         return out
 
     def _deadline(self, raw: str | None, meeting_date: date | None) -> tuple[date | None, bool]:
+        try:
+            return self._normalize_deadline(raw, meeting_date)
+        except (ValueError, OverflowError):
+            # A malformed duration must not erase other validated assignments.
+            # Keep its source text and require review instead of inventing a date.
+            return None, True
+
+    def _normalize_deadline(self, raw: str | None, meeting_date: date | None) -> tuple[date | None, bool]:
         if not raw:
             return None, False
         if not meeting_date:

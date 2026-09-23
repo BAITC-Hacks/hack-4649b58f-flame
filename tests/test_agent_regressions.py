@@ -1,4 +1,5 @@
 from datetime import date
+import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Thread
 
@@ -7,6 +8,58 @@ import pytest
 from app.agents.meeting_agent import MeetingProtocolAgent, ModelResponseError
 from app.config import local_model_url
 from app.models.schemas import TranscriptSegment
+
+
+@pytest.mark.parametrize("invalid_id", [[], {}, True, 1.0])
+def test_malformed_candidate_does_not_discard_valid_actions(invalid_id):
+    source = [TranscriptSegment(id=1, start=0, end=2, speaker_id="S1",
+                                text="Ерлан, подготовь отчёт.")]
+    valid = {"task": "Подготовить отчёт", "assignee": "Ерлан",
+             "author_speaker_id": "S1", "evidence_segment_id": 1, "confidence": 0.9}
+
+    class StubAgent(MeetingProtocolAgent):
+        def _call_ollama(self, prompt):
+            return json.dumps({"speakers": [], "action_items": [
+                {**valid, "evidence_segment_id": invalid_id}, valid,
+            ]})
+
+    result = StubAgent().run(source, date(2026, 9, 21))
+    assert len(result.action_items) == 1
+    assert result.transcript == source
+    assert any("evidence_segment_id" in warning for warning in result.warnings)
+
+
+@pytest.mark.parametrize("deadline,meeting", [
+    ("через 999999999999 дней", date(2026, 9, 21)),
+    ("999999999999 апта ішінде", date(2026, 9, 21)),
+    ("завтра", date.max),
+    ("к среде", date(9999, 12, 30)),
+])
+def test_unrepresentable_deadline_is_ambiguous(deadline, meeting):
+    assert MeetingProtocolAgent()._deadline(deadline, meeting) == (None, True)
+
+
+def test_invalid_deadline_does_not_discard_other_actions():
+    source = [
+        TranscriptSegment(id=1, start=0, end=2, speaker_id="S1",
+                          text="Ерлан, подготовь отчёт через 999999999999 дней."),
+        TranscriptSegment(id=2, start=2, end=4, speaker_id="S1",
+                          text="Ботагоз, проверь договор."),
+    ]
+
+    class StubAgent(MeetingProtocolAgent):
+        def _call_ollama(self, prompt):
+            return json.dumps({"speakers": [], "action_items": [
+                {"task": "Подготовить отчёт", "assignee": "Ерлан",
+                 "deadline_text": "через 999999999999 дней", "evidence_segment_id": 1},
+                {"task": "Проверить договор", "assignee": "Ботагоз", "evidence_segment_id": 2},
+            ]})
+
+    result = StubAgent().run(source, date(2026, 9, 21))
+    assert len(result.action_items) == 2
+    assert result.action_items[0].deadline_iso is None
+    assert result.action_items[0].needs_review
+    assert result.action_items[0].deadline_text == "через 999999999999 дней"
 
 
 @pytest.mark.parametrize("model_deadline", [None, "срок не указан"])
