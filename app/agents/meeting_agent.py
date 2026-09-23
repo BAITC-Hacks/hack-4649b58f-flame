@@ -28,6 +28,10 @@ WEEKDAYS = {
     "суббота": 5, "субботу": 5, "субботы": 5, "субботе": 5,
     "воскресенье": 6, "воскресенья": 6, "воскресенью": 6,
 }
+KZ_WEEKDAYS = {
+    "дүйсенбі": 0, "сейсенбі": 1, "сәрсенбі": 2, "бейсенбі": 3,
+    "жұма": 4, "сенбі": 5, "жексенбі": 6,
+}
 MONTHS = {
     "января": 1, "февраля": 2, "марта": 3, "апреля": 4, "мая": 5, "июня": 6,
     "июля": 7, "августа": 8, "сентября": 9, "октября": 10, "ноября": 11, "декабря": 12,
@@ -40,7 +44,12 @@ NUMBERS = {
     "восемь": 8, "восьми": 8, "девять": 9, "девяти": 9,
     "десять": 10, "десяти": 10,
 }
+KZ_NUMBERS = {
+    "бір": 1, "екі": 2, "үш": 3, "төрт": 4, "бес": 5,
+    "алты": 6, "жеті": 7, "сегіз": 8, "тоғыз": 9, "он": 10,
+}
 NUMBER_WORDS_RE = "|".join(sorted(NUMBERS, key=len, reverse=True))
+KZ_NUMBER_WORDS_RE = "|".join(sorted(KZ_NUMBERS, key=len, reverse=True))
 STOPWORDS = {
     "и", "или", "но", "а", "в", "во", "на", "по", "для", "до", "к", "ко", "за", "из", "от",
     "с", "со", "о", "об", "про", "это", "эту", "этот", "эти", "того", "также", "нужно", "надо",
@@ -74,7 +83,15 @@ ACTION_STEM_GROUPS = {
     "create": ("созд",),
     "update": ("обнов",),
     "fix": ("исправ",),
+    "execute": ("орында",),
 }
+ACTION_STEM_GROUPS["make"] += ("жаса",)
+ACTION_STEM_GROUPS["prepare"] += ("дайында", "әзірле")
+ACTION_STEM_GROUPS["send"] += ("жібер",)
+ACTION_STEM_GROUPS["find"] += ("таб", "ізде")
+ACTION_STEM_GROUPS["check"] += ("тексер",)
+ACTION_STEM_GROUPS["collect"] += ("жина",)
+ACTION_STEM_GROUPS["approve"] += ("келіс",)
 POSITIVE_REMINDER_PATTERN = re.compile(
     r"\bне\s+(?:(?:надо|нужно|следует|стоит)\s+)?(?:забывать|забыть|забудь|забывайте)\b",
     re.I,
@@ -94,6 +111,15 @@ NEGATED_ACTION_PATTERNS = [
         re.I,
     ),
 ]
+KAZAKH_NEGATED_ACTION_PATTERNS = [
+    re.compile(r"\b(?:керек|қажет)\s+емес\b", re.I),
+    re.compile(
+        r"\b(?:жасама|жасамаңыз|дайындама|дайындамаңыз|әзірлеме|әзірлемеңіз|"
+        r"жіберме|жібермеңіз|тексерме|тексермеңіз|жинама|жинамаңыз|"
+        r"орындама|орындамаңыз)\b",
+        re.I,
+    ),
+]
 NON_ASSIGNMENT_PATTERNS = [
     re.compile(r"\bкто\s+(?:может|сможет|готов)\b", re.I),
     re.compile(r"\b(?:нужно|надо|стоит|можно)\s+ли\b", re.I),
@@ -105,6 +131,8 @@ NON_ASSIGNMENT_PATTERNS = [
         re.I,
     ),
     re.compile(r"\b(?:есть\s+)?возможност[ьи]\b", re.I),
+    re.compile(r"\bкім\b.*\bалады\b", re.I),
+    re.compile(r"\b(?:керек|қажет)\s+пе\b", re.I),
 ]
 COMPLETED_FACT_PATTERN = re.compile(
     r"\b(?:сделал(?:а|и)?|подготовил(?:а|и)?|отправил(?:а|и)?|проверил(?:а|и)?|"
@@ -115,6 +143,11 @@ COMPLETED_FACT_PATTERN = re.compile(
 )
 COMPLETED_ROOT_ALIASES = {"нашел": "найти", "нашёл": "найти", "нашла": "найти", "нашли": "найти"}
 PAST_VERB_PATTERN = re.compile(r"\b[А-Яа-яЁё]{4,}(?:л|ла|ли|ло|лся|лась|лись)\b", re.I)
+KAZAKH_COMPLETED_ACTION_PATTERN = re.compile(
+    r"\b(?:жасады|дайындады|әзірледі|жіберді|тапты|іздеді|тексерді|жинады|"
+    r"орындады|келісті|төледі)\b",
+    re.I,
+)
 CANCELLATION_PATTERNS = [
     re.compile(r"\b(?:отменяем|отменили|отменить)\s+(?:(?:это|данное|старое)\s+)?поручение\b", re.I),
     re.compile(r"\bотмена\s+(?:(?:этого|данного|старого)\s+)?поручения\b", re.I),
@@ -132,11 +165,17 @@ FIRST_PERSON_ACTION_PATTERN = re.compile(
     re.I,
 )
 ASSIGNMENT_CUE_PATTERN = re.compile(
-    r"\b(?:нужно|надо|необходимо|следует|должен|должна|прошу|поручаю|давайте|пусть|"
+    r"\b(?:нужно|надо|необходимо|требуется|следует|должен|должна|прошу|поручаю|давайте|пусть|"
     r"сделай|сделайте|подготовь|подготовьте|отправь|отправьте|найди|найдите|"
     r"проверь|проверьте|собери|соберите|предоставь|предоставьте|разработай|"
     r"разработайте|уточни|уточните|организуй|организуйте|сформируй|сформируйте|"
     r"согласуй|согласуйте|рассчитай|рассчитайте|оплати|оплатите|свяжись|свяжитесь)\b",
+    re.I,
+)
+KAZAKH_ASSIGNMENT_CUE_PATTERN = re.compile(
+    r"\b(?:керек|қажет|тиіс|өтінемін|сұраймын|тапсырамын|"
+    r"жаса(?:ңыз)?|дайында(?:ңыз)?|әзірле(?:ңіз)?|жібер(?:іңіз)?|табыңыз|"
+    r"ізде(?:ңіз)?|тексер(?:іңіз)?|жина(?:ңыз)?|орында(?:ңыз)?|келіс(?:іңіз)?)\b",
     re.I,
 )
 THIRD_PERSON_ACTION_PATTERN = re.compile(
@@ -145,8 +184,18 @@ THIRD_PERSON_ACTION_PATTERN = re.compile(
     r"посчитает|оплатит|подпишет|направит|закажет|доставит|создаст|обновит|исправит)\b",
     re.I,
 )
+KAZAKH_FIRST_PERSON_ACTION_PATTERN = re.compile(
+    r"\b(?:жасаймын|дайындаймын|әзірлеймін|жіберемін|табамын|іздеймін|"
+    r"тексеремін|жинаймын|орындаймын|келісемін)\b",
+    re.I,
+)
+KAZAKH_THIRD_PERSON_ACTION_PATTERN = re.compile(
+    r"\b(?:жасайды|дайындайды|әзірлейді|жібереді|табады|іздейді|"
+    r"тексереді|жинайды|орындайды|келіседі)\b",
+    re.I,
+)
 DEADLINE_PATTERNS = [
-    re.compile(r"\b(?:сегодня|завтра|послезавтра)\b", re.I),
+    re.compile(r"\b(?:сегодня|завтра|послезавтра|бүгін|ертең|бүрсігүні)\b", re.I),
     re.compile(
         rf"\b(?:через|за|в\s+течение)\s+(?:(?:\d+|{NUMBER_WORDS_RE}|полторы)\s+)?"
         r"(?:день|дня|дней|неделю|недели|недель)\b",
@@ -166,6 +215,15 @@ DEADLINE_PATTERNS = [
         r"(?:\s+20\d{2})?\b",
         re.I,
     ),
+    re.compile(
+        rf"\b(?:{'|'.join(KZ_WEEKDAYS)})(?:ге|ға|ке|қа)?(?:\s+дейін)?\b",
+        re.I,
+    ),
+    re.compile(
+        rf"\b(?:\d+|{KZ_NUMBER_WORDS_RE})\s+(?:күн|апта)(?:\s+ішінде)?\b",
+        re.I,
+    ),
+    re.compile(r"\bаптаның\s+соңына\s+дейін\b", re.I),
 ]
 
 
@@ -538,12 +596,14 @@ class MeetingProtocolAgent:
             return meeting_date, False
         if any(token in text for token in ("конца недели", "конца месяца", "полторы недели")):
             return None, True
-        if "послезавтра" in text:
+        if "послезавтра" in text or "бүрсігүні" in text:
             return meeting_date + timedelta(days=2), False
-        if "завтра" in text:
+        if "завтра" in text or "ертең" in text:
             return meeting_date + timedelta(days=1), False
-        if "сегодня" in text:
+        if "сегодня" in text or "бүгін" in text:
             return meeting_date, False
+        if "аптаның соңына дейін" in text:
+            return None, True
 
         relative = re.search(
             rf"\b(?:через|за|в течение) (?:(\d+|{NUMBER_WORDS_RE}) )?(день|дня|дней|неделю|недели|недель)\b",
@@ -554,6 +614,16 @@ class MeetingProtocolAgent:
             count = 1 if value is None else (int(value) if value.isdigit() else NUMBERS.get(value))
             if count:
                 return meeting_date + timedelta(days=count * (7 if relative.group(2).startswith("недел") else 1)), False
+
+        kz_relative = re.search(
+            rf"\b(\d+|{KZ_NUMBER_WORDS_RE}) (күн|апта)(?: ішінде)?\b",
+            text,
+        )
+        if kz_relative:
+            value = kz_relative.group(1)
+            count = int(value) if value.isdigit() else KZ_NUMBERS.get(value)
+            if count:
+                return meeting_date + timedelta(days=count * (7 if kz_relative.group(2) == "апта" else 1)), False
 
         iso = re.search(r"\b(20\d{2}) (\d{1,2}) (\d{1,2})\b", text)
         if iso:
@@ -586,6 +656,12 @@ class MeetingProtocolAgent:
             return None, True
         for word, weekday in WEEKDAYS.items():
             if re.search(rf"\b(?:к|до|в|на) {word}\b", text):
+                delta = (weekday - meeting_date.weekday()) % 7
+                if delta == 0:
+                    return None, True
+                return meeting_date + timedelta(days=delta), False
+        for word, weekday in KZ_WEEKDAYS.items():
+            if re.search(rf"\b{word}(?:ге|ға|ке|қа)?(?: дейін)?\b", text):
                 delta = (weekday - meeting_date.weekday()) % 7
                 if delta == 0:
                     return None, True
@@ -720,7 +796,10 @@ class MeetingProtocolAgent:
                 continue
             if self._is_explicit_cancellation(cleaned) and self._task_mentioned(task, cleaned):
                 return True
-            if any(pattern.search(cleaned) for pattern in NEGATED_ACTION_PATTERNS) and self._task_mentioned(task, cleaned):
+            if any(
+                pattern.search(cleaned)
+                for pattern in (*NEGATED_ACTION_PATTERNS, *KAZAKH_NEGATED_ACTION_PATTERNS)
+            ) and self._task_mentioned(task, cleaned):
                 return True
         return False
 
@@ -863,7 +942,10 @@ class MeetingProtocolAgent:
             cleaned = POSITIVE_REMINDER_PATTERN.sub("", clause)
             if not cleaned.strip() or not self._task_mentioned(task, cleaned):
                 continue
-            if any(pattern.search(cleaned) for pattern in (*NEGATED_ACTION_PATTERNS, *NON_ASSIGNMENT_PATTERNS)):
+            if any(
+                pattern.search(cleaned)
+                for pattern in (*NEGATED_ACTION_PATTERNS, *KAZAKH_NEGATED_ACTION_PATTERNS, *NON_ASSIGNMENT_PATTERNS)
+            ):
                 bad_match = True
                 continue
             return False
@@ -875,16 +957,23 @@ class MeetingProtocolAgent:
             cleaned = POSITIVE_REMINDER_PATTERN.sub("", clause).strip()
             if not cleaned or not self._task_mentioned(task, cleaned):
                 continue
-            if ASSIGNMENT_CUE_PATTERN.search(cleaned) or self._is_self_assignment(task, cleaned):
+            if (
+                ASSIGNMENT_CUE_PATTERN.search(cleaned)
+                or KAZAKH_ASSIGNMENT_CUE_PATTERN.search(cleaned)
+                or self._is_self_assignment(task, cleaned)
+            ):
                 return True
-            for match in THIRD_PERSON_ACTION_PATTERN.finditer(cleaned):
-                if not task_actions or task_actions & self._action_signatures(self._norm(match.group(0))):
-                    return True
+            for pattern in (THIRD_PERSON_ACTION_PATTERN, KAZAKH_THIRD_PERSON_ACTION_PATTERN):
+                for match in pattern.finditer(cleaned):
+                    if not task_actions or task_actions & self._action_signatures(self._norm(match.group(0))):
+                        return True
             tokens = self._norm(cleaned).split()
             for token in tokens[:3]:
-                if not re.search(r"(?:ть|ти|чь|ться)$", token):
-                    continue
                 token_actions = self._action_signatures(token)
+                russian_infinitive = re.search(r"(?:ть|ти|чь|ться)$", token) is not None
+                kazakh_infinitive = token.endswith("у") and bool(token_actions)
+                if not (russian_infinitive or kazakh_infinitive):
+                    continue
                 if not task_actions or task_actions & token_actions:
                     return True
         return False
@@ -902,6 +991,12 @@ class MeetingProtocolAgent:
                 completed_for_task = True
                 break
         if not completed_for_task:
+            for match in KAZAKH_COMPLETED_ACTION_PATTERN.finditer(text):
+                past_actions = self._action_signatures(self._norm(match.group(0)))
+                if task_actions and task_actions & past_actions:
+                    completed_for_task = True
+                    break
+        if not completed_for_task:
             for match in COMPLETED_FACT_PATTERN.finditer(text):
                 completed = self._norm(match.group(0))
                 completed_root = COMPLETED_ROOT_ALIASES.get(completed, self._root(completed))
@@ -917,7 +1012,7 @@ class MeetingProtocolAgent:
             if clause.strip()
         ]
         for clause in clauses:
-            if COMPLETED_FACT_PATTERN.search(clause):
+            if COMPLETED_FACT_PATTERN.search(clause) or KAZAKH_COMPLETED_ACTION_PATTERN.search(clause):
                 continue
             if not self._task_mentioned(task, clause):
                 continue
@@ -979,9 +1074,10 @@ class MeetingProtocolAgent:
         task_actions = self._action_signatures(self._norm(task))
         if not task_actions:
             return False
-        for match in FIRST_PERSON_ACTION_PATTERN.finditer(text):
-            if task_actions & self._action_signatures(self._norm(match.group(0))):
-                return True
+        for pattern in (FIRST_PERSON_ACTION_PATTERN, KAZAKH_FIRST_PERSON_ACTION_PATTERN):
+            for match in pattern.finditer(text):
+                if task_actions & self._action_signatures(self._norm(match.group(0))):
+                    return True
         return False
 
     def _name_is_negated_or_alternative(self, name: str, text: str) -> bool:
