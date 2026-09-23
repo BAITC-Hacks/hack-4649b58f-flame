@@ -787,3 +787,35 @@ def test_empty_transcript_has_explicit_safe_summary():
     result = FakeAgent({"speakers": [], "action_items": []}).run([], date(2026, 9, 21), "Empty")
     assert result.action_items == []
     assert result.summary == "Подтверждённые поручения не извлечены."
+
+
+def test_competing_deadlines_in_same_evidence_do_not_get_exact_date():
+    transcript = [
+        TranscriptSegment(
+            id=1,
+            start=0,
+            end=4,
+            speaker_id="S1",
+            text="Ерлан, подготовь отчёт не к пятнице, а к среде.",
+        )
+    ]
+    payload = {
+        "speakers": [],
+        "action_items": [
+            {
+                "task": "Подготовить отчёт",
+                "assignee": "Ерлан",
+                "author_speaker_id": "S1",
+                "deadline_text": "к пятнице",
+                "evidence_segment_id": 1,
+                "confidence": 0.95,
+                "needs_review": False,
+            }
+        ],
+    }
+    result = FakeAgent(payload).run(transcript, date(2026, 9, 21), "Deadline revision")
+    item = result.action_items[0]
+    assert item.deadline_text == "к пятнице"
+    assert item.deadline_iso is None
+    assert item.needs_review is True
+    assert "конкурирующих сроков" in (item.warning or "")
